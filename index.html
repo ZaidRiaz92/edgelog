@@ -103,52 +103,158 @@ function nowTime() {
   return new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
-// ─── AI PARSING ──────────────────────────────────────────────
+// ─── LOCAL SMART PARSER ──────────────────────────────────────
 async function parseTradeWithAI(text) {
-  const today = todayISO();
-  const systemPrompt = `You are a trading journal assistant that parses natural language trade entries from a stock trader.
-
-Extract trade information from the user's message and return ONLY a JSON object with these fields (use null for missing):
-{
-  "type": "trade" | "query" | "note",
-  "ticker": string or null,
-  "direction": "Long" | "Short" | "Add" | null,
-  "entry": number or null,
-  "exit": number or null,
-  "size": number or null,
-  "stop": number or null,
-  "target": number or null,
-  "emotion": string or null (e.g. "Calm", "Confident", "FOMO", "Revenge", "Hope", "Patient", "Anxious"),
-  "setup": string or null (e.g. "Breakout", "Pullback", "Momentum", "Reversal", "Add"),
-  "thesis": string or null,
-  "queryType": null | "weekly" | "best" | "worst" | "stats" | "ticker",
-  "queryTicker": string or null,
-  "aiComment": string (a brief insightful comment about the trade or answer to the query, 1-2 sentences, like a smart analyst would say)
+  return localParseTrade(text);
 }
 
-Today is ${today}.
-For "type": use "trade" if logging a trade, "query" if asking a question about performance, "note" if general note.
-For emotion: infer from context if not stated explicitly.
-For setup: infer from context (e.g. "breakout from consolidation" = "Breakout").
-Return ONLY the JSON, no markdown, no explanation.`;
+function localParseTrade(text) {
+  const t = text.toLowerCase().trim();
 
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 1000,
-      system: systemPrompt,
-      messages: [{ role: "user", content: text }]
-    })
-  });
-  const data = await response.json();
-  const raw = data.content?.[0]?.text || '{}';
-  try {
-    return JSON.parse(raw.replace(/```json|```/g, '').trim());
-  } catch(e) {
-    return { type: 'note', aiComment: "Got it, noted." };
+  // ── Detect query type ──
+  const isQuery = /how.*(did|am|have)|this week|performance|stat|summary|my trades|show me|worst trade|best trade|p&?l|profit|loss(es)?(\s|$)/.test(t);
+  if (isQuery) {
+    let aiComment = "Here's your weekly breakdown.";
+    if (/worst/.test(t)) aiComment = "Your worst trade — a good one to study.";
+    if (/best/.test(t)) aiComment = "Your best trade — what went right here?";
+    if (/streak/.test(t)) aiComment = "Consistency is the edge. Keep it going.";
+    return { type: 'query', aiComment };
   }
+
+  // ── Extract ticker ──
+  // Match $TICKER or standalone uppercase 1-5 letter word
+  let ticker = null;
+  const dollarMatch = text.match(/\$([A-Z]{1,5})/i);
+  if (dollarMatch) {
+    ticker = dollarMatch[1].toUpperCase();
+  } else {
+    // Known tickers or uppercase words
+    const upperMatch = text.match(/\b([A-Z]{1,5})\b/);
+    if (upperMatch) ticker = upperMatch[1];
+    // Also try lowercase known tickers
+    const knownTickers = ['nvda','aapl','tsla','meta','msft','amzn','googl','spy','qqq','amd','coin','pltr','hood','sofi','smci','arm','avgo','crm','nflx','uber','lyft','abnb'];
+    for (const k of knownTickers) {
+      if (t.includes(k)) { ticker = k.toUpperCase(); break; }
+    }
+  }
+
+  if (!ticker) {
+    return { type: 'note', aiComment: "I couldn't find a ticker. Try: 'Bought 50 AAPL at $182, stop $178, target $190'" };
+  }
+
+  // ── Direction ──
+  let direction = 'Long';
+  if (/\b(short|shorted|shorting|sold short)\b/.test(t)) direction = 'Short';
+  else if (/\b(add(ed|ing)?|add(ed)? to|scaled|averaging)\b/.test(t)) direction = 'Add';
+  else if (/\b(bought|buy|long|entered|opened|added)\b/.test(t)) direction = 'Long';
+
+  // ── Prices — find all numbers ──
+  const allNums = [...text.matchAll(/\$?([\d,]+\.?\d*)/g)]
+    .map(m => parseFloat(m[1].replace(/,/g, '')))
+    .filter(n => n > 0);
+
+  let entry = null, exit = null, stop = null, target = null, size = null;
+
+  // Entry price patterns
+  const entryMatch = text.match(/(?:at|@|entry|entered at|bought at|price)\s*\$?([\d,]+\.?\d*)/i);
+  if (entryMatch) entry = parseFloat(entryMatch[1].replace(/,/g, ''));
+
+  // Exit price
+  const exitMatch = text.match(/(?:exit|closed?(?:\s+at)?|sold(?:\s+at)?|out(?:\s+at)?)\s*(?:at\s*)?\$?([\d,]+\.?\d*)/i);
+  if (exitMatch) exit = parseFloat(exitMatch[1].replace(/,/g, ''));
+
+  // Stop loss
+  const stopMatch = text.match(/(?:stop(?:\s+loss)?|sl|stoploss)\s*(?:at\s*|of\s*)?\$?([\d,]+\.?\d*)/i);
+  if (stopMatch) stop = parseFloat(stopMatch[1].replace(/,/g, ''));
+
+  // Target / take profit
+  const targetMatch = text.match(/(?:target|tp|take\s*profit|pt)\s*(?:at\s*|of\s*)?\$?([\d,]+\.?\d*)/i);
+  if (targetMatch) target = parseFloat(targetMatch[1].replace(/,/g, ''));
+
+  // Size / shares
+  const sizeMatch = text.match(/([\d,]+)\s*(?:shares?|sh|contracts?|units?)/i)
+    || text.match(/(?:bought|sold|shorted|bought|purchased|buy)\s+([\d,]+)/i);
+  if (sizeMatch) size = parseInt(sizeMatch[1].replace(/,/g, ''));
+
+  // Fallback: if we have 2+ numbers and no entry, use heuristics
+  if (!entry && allNums.length > 0) {
+    // largest number that looks like a stock price (5-2000 range typically)
+    const priceNums = allNums.filter(n => n >= 1 && n <= 100000);
+    if (priceNums.length >= 1) entry = priceNums[0];
+    if (!size) {
+      // smallest number likely to be shares
+      const shareNums = allNums.filter(n => n >= 1 && n <= 10000 && n !== entry);
+      if (shareNums.length > 0) size = Math.round(shareNums[0]);
+    }
+  }
+
+  // ── Emotion ──
+  let emotion = null;
+  const emotionMap = [
+    { pattern: /\b(fomo|chased?|chase)\b/, label: 'FOMO' },
+    { pattern: /\b(revenge|angry|frustrated|frustrat)\b/, label: 'Revenge' },
+    { pattern: /\b(hope|hoping|praying)\b/, label: 'Hope' },
+    { pattern: /\b(confident?|conviction|strong)\b/, label: 'Confident' },
+    { pattern: /\b(calm|disciplin|patient|waited?|waiting)\b/, label: 'Patient' },
+    { pattern: /\b(patient|wait)\b/, label: 'Patient' },
+    { pattern: /\b(anxious|nervous|scared|fear)\b/, label: 'Anxious' },
+    { pattern: /\b(excited|excited)\b/, label: 'Excited' },
+  ];
+  for (const e of emotionMap) {
+    if (e.pattern.test(t)) { emotion = e.label; break; }
+  }
+
+  // ── Setup ──
+  let setup = null;
+  const setupMap = [
+    { pattern: /\b(breakout|broke out|break out)\b/, label: 'Breakout' },
+    { pattern: /\b(pullback|pull back|dip|dipped)\b/, label: 'Pullback' },
+    { pattern: /\b(momentum|momo)\b/, label: 'Momentum' },
+    { pattern: /\b(reversal|reverse|reversed|bounce)\b/, label: 'Reversal' },
+    { pattern: /\b(add(ed)?|scale|averaging)\b/, label: 'Add' },
+    { pattern: /\b(vwap)\b/, label: 'VWAP' },
+    { pattern: /\b(gap|gapped)\b/, label: 'Gap' },
+    { pattern: /\b(support|resist)\b/, label: 'S/R' },
+  ];
+  for (const s of setupMap) {
+    if (s.pattern.test(t)) { setup = s.label; break; }
+  }
+
+  // ── Thesis — everything after "thesis:" or "because" or "reason" ──
+  let thesis = null;
+  const thesisMatch = text.match(/(?:thesis|because|reason|note|think|thoughts?)\s*:?\s*(.+)/i);
+  if (thesisMatch) thesis = thesisMatch[1].trim();
+
+  // ── Determine if closed ──
+  const isClosed = exit !== null || /\b(closed?|exit|sold|out)\b/.test(t);
+
+  // ── AI comment ──
+  const comments = {
+    'FOMO': "FOMO entry noted — check if your edge was really there before entry.",
+    'Revenge': "Revenge trade flagged. These rarely end well — review your rules.",
+    'Hope': "Hope is not a strategy. Make sure you had a real thesis here.",
+    'Confident': "Solid conviction trade. Let it breathe.",
+    'Patient': "Disciplined entry. Patient trades tend to win more.",
+    'default': isClosed
+      ? `${ticker} trade closed — P&L logged.`
+      : `${ticker} trade open — stop and target set. Let your edge play out.`,
+  };
+  const aiComment = comments[emotion] || comments['default'];
+
+  return {
+    type: 'trade',
+    ticker,
+    direction,
+    entry,
+    exit: isClosed && !exit ? null : exit,
+    size,
+    stop,
+    target,
+    emotion,
+    setup,
+    thesis,
+    aiComment,
+  };
 }
 
 async function generateWeeklySummary(trades) {
