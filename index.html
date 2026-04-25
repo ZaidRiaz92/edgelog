@@ -104,11 +104,11 @@ function nowTime() {
 }
 
 // ─── LOCAL SMART PARSER ──────────────────────────────────────
-async function parseTradeWithAI(text) {
-  return localParseTrade(text);
+async function parseTradeWithAI(text, openTrades) {
+  return localParseTrade(text, openTrades);
 }
 
-function localParseTrade(text) {
+function localParseTrade(text, openTrades) {
   const t = text.toLowerCase().trim();
 
   // ── Detect query type ──
@@ -121,17 +121,18 @@ function localParseTrade(text) {
     return { type: 'query', aiComment };
   }
 
+  // ── Detect CLOSE/SELL action first ──
+  const isCloseAction = /\b(sold|sell|closed?|exited?|out of|took profit|stopped out|hit stop)\b/.test(t)
+    && !/\b(sold short|short sell)\b/.test(t);
+
   // ── Extract ticker ──
-  // Match $TICKER or standalone uppercase 1-5 letter word
   let ticker = null;
   const dollarMatch = text.match(/\$([A-Z]{1,5})/i);
   if (dollarMatch) {
     ticker = dollarMatch[1].toUpperCase();
   } else {
-    // Known tickers or uppercase words
     const upperMatch = text.match(/\b([A-Z]{1,5})\b/);
     if (upperMatch) ticker = upperMatch[1];
-    // Also try lowercase known tickers
     const knownTickers = ['nvda','aapl','tsla','meta','msft','amzn','googl','spy','qqq','amd','coin','pltr','hood','sofi','smci','arm','avgo','crm','nflx','uber','lyft','abnb'];
     for (const k of knownTickers) {
       if (t.includes(k)) { ticker = k.toUpperCase(); break; }
@@ -140,6 +141,45 @@ function localParseTrade(text) {
 
   if (!ticker) {
     return { type: 'note', aiComment: "I couldn't find a ticker. Try: 'Bought 50 AAPL at $182, stop $178, target $190'" };
+  }
+
+  // ── If this is a close action, find the matching open trade ──
+  if (isCloseAction && openTrades) {
+    const openTrade = openTrades.find(tr => tr.ticker === ticker && tr.status === 'Open');
+    if (openTrade) {
+      // Extract the exit price
+      const allNums = [...text.matchAll(/\$?([\d,]+\.?\d*)/g)]
+        .map(m => parseFloat(m[1].replace(/,/g, ''))).filter(n => n > 1);
+      // Find exit price — look for "at X" or "for X" or just the price number
+      const exitMatch = text.match(/(?:at|@|for|price)\s*\$?([\d,]+\.?\d*)/i);
+      const exitPrice = exitMatch
+        ? parseFloat(exitMatch[1].replace(/,/g, ''))
+        : allNums.find(n => n !== openTrade.size) || null;
+
+      const pnl = exitPrice && openTrade.entry && openTrade.size
+        ? (exitPrice - openTrade.entry) * openTrade.size * (openTrade.direction === 'Short' ? -1 : 1)
+        : null;
+      const pnlPct = pnl !== null ? (pnl / (openTrade.entry * openTrade.size)) * 100 : null;
+      const rMultiple = pnl !== null && openTrade.stop
+        ? pnl / (Math.abs(openTrade.entry - openTrade.stop) * openTrade.size) : null;
+
+      const aiComment = pnl > 0
+        ? `Nice — ${ticker} closed for ${fmtMoney(pnl, {sign:true})}. What worked?`
+        : pnl < 0
+        ? `${ticker} stopped out at ${fmtMoney(pnl, {sign:true})}. Review the setup later.`
+        : `${ticker} closed. P&L logged.`;
+
+      return {
+        type: 'close',
+        closeTradeId: openTrade.id,
+        ticker,
+        exitPrice,
+        pnl,
+        pnlPct,
+        rMultiple,
+        aiComment,
+      };
+    }
   }
 
   // ── Direction ──
@@ -173,16 +213,14 @@ function localParseTrade(text) {
 
   // Size / shares
   const sizeMatch = text.match(/([\d,]+)\s*(?:shares?|sh|contracts?|units?)/i)
-    || text.match(/(?:bought|sold|shorted|bought|purchased|buy)\s+([\d,]+)/i);
+    || text.match(/(?:bought|sold|shorted|purchased|buy)\s+([\d,]+)/i);
   if (sizeMatch) size = parseInt(sizeMatch[1].replace(/,/g, ''));
 
   // Fallback: if we have 2+ numbers and no entry, use heuristics
   if (!entry && allNums.length > 0) {
-    // largest number that looks like a stock price (5-2000 range typically)
     const priceNums = allNums.filter(n => n >= 1 && n <= 100000);
     if (priceNums.length >= 1) entry = priceNums[0];
     if (!size) {
-      // smallest number likely to be shares
       const shareNums = allNums.filter(n => n >= 1 && n <= 10000 && n !== entry);
       if (shareNums.length > 0) size = Math.round(shareNums[0]);
     }
@@ -597,12 +635,47 @@ class EdgeLogApp {
     msgArea.scrollTop = msgArea.scrollHeight;
 
     try {
-      const parsed = await parseTradeWithAI(text);
+      const openTrades = this.data.trades.filter(t => t.status === 'Open');
+      const parsed = await parseTradeWithAI(text, openTrades);
       msgArea.removeChild(typingEl);
 
       const tradeId = `t_${Date.now()}`;
 
-      if (parsed.type === 'query') {
+      if (parsed.type === 'close') {
+        // Close an existing open trade
+        const idx = this.data.trades.findIndex(t => t.id === parsed.closeTradeId);
+        if (idx !== -1) {
+          this.data.trades[idx].exit = parsed.exitPrice;
+          this.data.trades[idx].pnl = parsed.pnl;
+          this.data.trades[idx].pnlPct = parsed.pnlPct;
+          this.data.trades[idx].r = parsed.rMultiple;
+          this.data.trades[idx].status = 'Closed';
+          saveData(this.data);
+        }
+        const closeMsg = { id: `a_${Date.now()}`, role: 'ai', type: 'text', text: parsed.aiComment, time: nowTime() };
+        this.addMessage(closeMsg);
+        msgArea.appendChild(this.createMessageEl(closeMsg));
+        // Show closed trade card
+        const closedTrade = this.data.trades[idx];
+        if (closedTrade) {
+          const closeCard = document.createElement('div');
+          closeCard.style.cssText = `align-self:flex-start;max-width:92%;`;
+          const pnlColor = parsed.pnl > 0 ? T.win : T.loss;
+          closeCard.innerHTML = `
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;margin-left:2px">
+              <div style="width:16px;height:16px;border-radius:3px;background:${T.ink};color:${T.bg};font-family:${F.mono};font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center">E</div>
+            </div>
+            <div style="background:${T.surface};border:1px solid ${T.line};border-left:3px solid ${pnlColor};border-radius:10px;padding:10px 14px;">
+              <div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:2px;margin-bottom:6px">TRADE CLOSED · ${closedTrade.ticker}</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+                <div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};text-transform:uppercase;margin-bottom:2px">Entry</div><div style="font-family:${F.mono};font-size:13px;font-weight:600;color:${T.ink}">${fmtMoney(closedTrade.entry)}</div></div>
+                <div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};text-transform:uppercase;margin-bottom:2px">Exit</div><div style="font-family:${F.mono};font-size:13px;font-weight:600;color:${T.ink}">${fmtMoney(closedTrade.exit)}</div></div>
+                <div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};text-transform:uppercase;margin-bottom:2px">P&L</div><div style="font-family:${F.mono};font-size:13px;font-weight:700;color:${pnlColor}">${fmtMoney(parsed.pnl, {sign:true})}</div></div>
+              </div>
+            </div>`;
+          msgArea.appendChild(closeCard);
+        }
+      } else if (parsed.type === 'query') {
         // Generate weekly summary
         const summary = await generateWeeklySummary(this.data.trades);
         const now = new Date();
