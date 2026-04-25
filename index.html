@@ -1,3 +1,6 @@
+Here's the full code — click the copy button in the top right of the code block:Here's the full code — copy everything below:
+
+```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -22,17 +25,11 @@
     overflow: hidden;
   }
   #root { height: 100%; width: 100%; }
-
   @keyframes edgeDot { 0%, 80%, 100% { opacity: 0.2; transform: scale(0.85); } 40% { opacity: 1; transform: scale(1); } }
   @keyframes edgeFade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes edgePop { 0% { opacity: 0; transform: scale(0.96); } 100% { opacity: 1; transform: scale(1); } }
   @keyframes spin { to { transform: rotate(360deg); } }
-
-  input, button, textarea, select {
-    font-family: inherit;
-    -webkit-appearance: none;
-    appearance: none;
-  }
+  input, button, textarea, select { font-family: inherit; -webkit-appearance: none; appearance: none; }
   button { cursor: pointer; }
   ::-webkit-scrollbar { display: none; }
   * { scrollbar-width: none; }
@@ -40,1195 +37,288 @@
 </head>
 <body>
 <div id="root"></div>
-
 <script>
-// ─── THEME ───────────────────────────────────────────────────
-const THEME = {
-  bg: '#F2EDE3',
-  bgDeep: '#E8E0D0',
-  surface: '#FBF7EE',
-  ink: '#1A0A10',
-  inkSoft: '#5B4048',
-  inkMute: '#8A7A80',
-  line: 'rgba(58,15,31,0.12)',
-  primary: '#3A0F1F',
-  primaryDeep: '#26070F',
-  win: '#4A7C2A',
-  winGlow: 'rgba(166,230,104,0.35)',
-  loss: '#B84A3D',
-  lossGlow: 'rgba(184,74,61,0.18)',
-  gold: '#B8894A',
-  accent: '#D4C4A8',
-};
-const FONTS = {
-  display: '"Instrument Serif", "Times New Roman", serif',
-  ui: '"Inter Tight", -apple-system, system-ui, sans-serif',
-  mono: '"JetBrains Mono", "SF Mono", Menlo, monospace',
-};
-const T = THEME;
-const F = FONTS;
+const THEME={bg:'#F2EDE3',bgDeep:'#E8E0D0',surface:'#FBF7EE',ink:'#1A0A10',inkSoft:'#5B4048',inkMute:'#8A7A80',line:'rgba(58,15,31,0.12)',primary:'#3A0F1F',primaryDeep:'#26070F',win:'#4A7C2A',winGlow:'rgba(166,230,104,0.35)',loss:'#B84A3D',lossGlow:'rgba(184,74,61,0.18)',gold:'#B8894A',accent:'#D4C4A8'};
+const FONTS={display:'"Instrument Serif", "Times New Roman", serif',ui:'"Inter Tight", -apple-system, system-ui, sans-serif',mono:'"JetBrains Mono", "SF Mono", Menlo, monospace'};
+const T=THEME,F=FONTS;
+const STORAGE_KEY='edgelog_v1';
+function loadData(){try{const r=localStorage.getItem(STORAGE_KEY);if(r)return JSON.parse(r);}catch(e){}return{trades:[],messages:[]};}
+function saveData(d){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(d));}catch(e){}}
+function fmtMoney(n,{sign=false,decimals=2}={}){if(n===null||n===undefined)return'—';const abs=Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:decimals,maximumFractionDigits:decimals});const s=n<0?'-':(sign&&n>0?'+':'');return`${s}$${abs}`;}
+function fmtPct(n,{sign=true}={}){if(n===null||n===undefined)return'—';const s=sign&&n>0?'+':(n<0?'-':'');return`${s}${Math.abs(n).toFixed(2)}%`;}
+function fmtDate(d){return new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});}
+function todayISO(){return new Date().toISOString().slice(0,10);}
+function nowTime(){return new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});}
 
-// ─── STORAGE ─────────────────────────────────────────────────
-const STORAGE_KEY = 'edgelog_v1';
-function loadData() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch(e) {}
-  return { trades: [], messages: [] };
-}
-function saveData(data) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch(e) {}
-}
-
-// ─── UTILS ───────────────────────────────────────────────────
-function fmtMoney(n, { sign = false, decimals = 2 } = {}) {
-  if (n === null || n === undefined) return '—';
-  const abs = Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
-  const s = n < 0 ? '-' : (sign && n > 0 ? '+' : '');
-  return `${s}$${abs}`;
-}
-function fmtPct(n, { sign = true } = {}) {
-  if (n === null || n === undefined) return '—';
-  const s = sign && n > 0 ? '+' : n < 0 ? '-' : '';
-  return `${s}${Math.abs(n).toFixed(2)}%`;
-}
-function fmtDate(d) {
-  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-}
-function todayISO() {
-  return new Date().toISOString().slice(0, 10);
-}
-function nowTime() {
-  return new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+async function parseTradeWithAI(text){return localParseTrade(text);}
+function localParseTrade(text){
+  const t=text.toLowerCase().trim();
+  const isQuery=/how.*(did|am|have)|this week|performance|stat|summary|my trades|show me|worst trade|best trade|p&?l|profit|loss(es)?(\s|$)/.test(t);
+  if(isQuery){let c="Here's your weekly breakdown.";if(/worst/.test(t))c="Your worst trade — a good one to study.";if(/best/.test(t))c="Your best trade — what went right here?";if(/streak/.test(t))c="Consistency is the edge. Keep it going.";return{type:'query',aiComment:c};}
+  let ticker=null;
+  const dm=text.match(/\$([A-Z]{1,5})/i);
+  if(dm){ticker=dm[1].toUpperCase();}else{const um=text.match(/\b([A-Z]{1,5})\b/);if(um)ticker=um[1];const kt=['nvda','aapl','tsla','meta','msft','amzn','googl','spy','qqq','amd','coin','pltr','hood','sofi','smci','arm','avgo','crm','nflx','uber','lyft','abnb'];for(const k of kt){if(t.includes(k)){ticker=k.toUpperCase();break;}}}
+  if(!ticker)return{type:'note',aiComment:"I couldn't find a ticker. Try: 'Bought 50 AAPL at $182, stop $178, target $190'"};
+  let direction='Long';
+  if(/\b(short|shorted|shorting|sold short)\b/.test(t))direction='Short';
+  else if(/\b(add(ed|ing)?|add(ed)? to|scaled|averaging)\b/.test(t))direction='Add';
+  const allNums=[...text.matchAll(/\$?([\d,]+\.?\d*)/g)].map(m=>parseFloat(m[1].replace(/,/g,''))).filter(n=>n>0);
+  let entry=null,exit=null,stop=null,target=null,size=null;
+  const em=text.match(/(?:at|@|entry|entered at|bought at|price)\s*\$?([\d,]+\.?\d*)/i);if(em)entry=parseFloat(em[1].replace(/,/g,''));
+  const xm=text.match(/(?:exit|closed?(?:\s+at)?|sold(?:\s+at)?|out(?:\s+at)?)\s*(?:at\s*)?\$?([\d,]+\.?\d*)/i);if(xm)exit=parseFloat(xm[1].replace(/,/g,''));
+  const sm=text.match(/(?:stop(?:\s+loss)?|sl|stoploss)\s*(?:at\s*|of\s*)?\$?([\d,]+\.?\d*)/i);if(sm)stop=parseFloat(sm[1].replace(/,/g,''));
+  const tgm=text.match(/(?:target|tp|take\s*profit|pt)\s*(?:at\s*|of\s*)?\$?([\d,]+\.?\d*)/i);if(tgm)target=parseFloat(tgm[1].replace(/,/g,''));
+  const szm=text.match(/([\d,]+)\s*(?:shares?|sh|contracts?|units?)/i)||text.match(/(?:bought|sold|shorted|purchased|buy)\s+([\d,]+)/i);if(szm)size=parseInt(szm[1].replace(/,/g,''));
+  if(!entry&&allNums.length>0){const pn=allNums.filter(n=>n>=1&&n<=100000);if(pn.length>=1)entry=pn[0];if(!size){const sn=allNums.filter(n=>n>=1&&n<=10000&&n!==entry);if(sn.length>0)size=Math.round(sn[0]);}}
+  let emotion=null;
+  const emap=[{p:/\b(fomo|chased?|chase)\b/,l:'FOMO'},{p:/\b(revenge|angry|frustrated)\b/,l:'Revenge'},{p:/\b(hope|hoping|praying)\b/,l:'Hope'},{p:/\b(confident?|conviction|strong)\b/,l:'Confident'},{p:/\b(calm|disciplin|patient|waited?|waiting)\b/,l:'Patient'},{p:/\b(anxious|nervous|scared|fear)\b/,l:'Anxious'}];
+  for(const e of emap){if(e.p.test(t)){emotion=e.l;break;}}
+  let setup=null;
+  const smap=[{p:/\b(breakout|broke out)\b/,l:'Breakout'},{p:/\b(pullback|pull back|dip)\b/,l:'Pullback'},{p:/\b(momentum|momo)\b/,l:'Momentum'},{p:/\b(reversal|reverse|bounce)\b/,l:'Reversal'},{p:/\b(vwap)\b/,l:'VWAP'},{p:/\b(gap|gapped)\b/,l:'Gap'},{p:/\b(support|resist)\b/,l:'S/R'}];
+  for(const s of smap){if(s.p.test(t)){setup=s.l;break;}}
+  let thesis=null;const thm=text.match(/(?:thesis|because|reason|note|think|thoughts?)\s*:?\s*(.+)/i);if(thm)thesis=thm[1].trim();
+  const isClosed=exit!==null||/\b(closed?|exit|sold|out)\b/.test(t);
+  const comments={'FOMO':'FOMO entry noted — check if your edge was really there.','Revenge':'Revenge trade flagged. These rarely end well.','Hope':'Hope is not a strategy. Did you have a real thesis?','Confident':'Solid conviction trade. Let it breathe.','Patient':'Disciplined entry. Patient trades tend to win more.','default':isClosed?`${ticker} trade closed — P&L logged.`:`${ticker} trade open — stop and target set.`};
+  return{type:'trade',ticker,direction,entry,exit:isClosed&&!exit?null:exit,size,stop,target,emotion,setup,thesis,aiComment:comments[emotion]||comments['default']};
 }
 
-// ─── LOCAL SMART PARSER ──────────────────────────────────────
-async function parseTradeWithAI(text) {
-  return localParseTrade(text);
+async function generateWeeklySummary(trades){
+  const wa=new Date();wa.setDate(wa.getDate()-7);
+  const wt=trades.filter(t=>new Date(t.date)>=wa&&t.pnl!==null);
+  if(!wt.length)return{pnl:0,winRate:0,trades:0,best:null,worst:null};
+  const pnl=wt.reduce((s,t)=>s+t.pnl,0);
+  const wins=wt.filter(t=>t.pnl>0);
+  return{pnl,winRate:Math.round(wins.length/wt.length*100),trades:wt.length,best:wt.reduce((b,t)=>t.pnl>(b?.pnl||-Infinity)?t:b,null),worst:wt.reduce((w,t)=>t.pnl<(w?.pnl||Infinity)?t:w,null)};
 }
 
-function localParseTrade(text) {
-  const t = text.toLowerCase().trim();
-
-  // ── Detect query type ──
-  const isQuery = /how.*(did|am|have)|this week|performance|stat|summary|my trades|show me|worst trade|best trade|p&?l|profit|loss(es)?(\s|$)/.test(t);
-  if (isQuery) {
-    let aiComment = "Here's your weekly breakdown.";
-    if (/worst/.test(t)) aiComment = "Your worst trade — a good one to study.";
-    if (/best/.test(t)) aiComment = "Your best trade — what went right here?";
-    if (/streak/.test(t)) aiComment = "Consistency is the edge. Keep it going.";
-    return { type: 'query', aiComment };
-  }
-
-  // ── Extract ticker ──
-  // Match $TICKER or standalone uppercase 1-5 letter word
-  let ticker = null;
-  const dollarMatch = text.match(/\$([A-Z]{1,5})/i);
-  if (dollarMatch) {
-    ticker = dollarMatch[1].toUpperCase();
-  } else {
-    // Known tickers or uppercase words
-    const upperMatch = text.match(/\b([A-Z]{1,5})\b/);
-    if (upperMatch) ticker = upperMatch[1];
-    // Also try lowercase known tickers
-    const knownTickers = ['nvda','aapl','tsla','meta','msft','amzn','googl','spy','qqq','amd','coin','pltr','hood','sofi','smci','arm','avgo','crm','nflx','uber','lyft','abnb'];
-    for (const k of knownTickers) {
-      if (t.includes(k)) { ticker = k.toUpperCase(); break; }
-    }
-  }
-
-  if (!ticker) {
-    return { type: 'note', aiComment: "I couldn't find a ticker. Try: 'Bought 50 AAPL at $182, stop $178, target $190'" };
-  }
-
-  // ── Direction ──
-  let direction = 'Long';
-  if (/\b(short|shorted|shorting|sold short)\b/.test(t)) direction = 'Short';
-  else if (/\b(add(ed|ing)?|add(ed)? to|scaled|averaging)\b/.test(t)) direction = 'Add';
-  else if (/\b(bought|buy|long|entered|opened|added)\b/.test(t)) direction = 'Long';
-
-  // ── Prices — find all numbers ──
-  const allNums = [...text.matchAll(/\$?([\d,]+\.?\d*)/g)]
-    .map(m => parseFloat(m[1].replace(/,/g, '')))
-    .filter(n => n > 0);
-
-  let entry = null, exit = null, stop = null, target = null, size = null;
-
-  // Entry price patterns
-  const entryMatch = text.match(/(?:at|@|entry|entered at|bought at|price)\s*\$?([\d,]+\.?\d*)/i);
-  if (entryMatch) entry = parseFloat(entryMatch[1].replace(/,/g, ''));
-
-  // Exit price
-  const exitMatch = text.match(/(?:exit|closed?(?:\s+at)?|sold(?:\s+at)?|out(?:\s+at)?)\s*(?:at\s*)?\$?([\d,]+\.?\d*)/i);
-  if (exitMatch) exit = parseFloat(exitMatch[1].replace(/,/g, ''));
-
-  // Stop loss
-  const stopMatch = text.match(/(?:stop(?:\s+loss)?|sl|stoploss)\s*(?:at\s*|of\s*)?\$?([\d,]+\.?\d*)/i);
-  if (stopMatch) stop = parseFloat(stopMatch[1].replace(/,/g, ''));
-
-  // Target / take profit
-  const targetMatch = text.match(/(?:target|tp|take\s*profit|pt)\s*(?:at\s*|of\s*)?\$?([\d,]+\.?\d*)/i);
-  if (targetMatch) target = parseFloat(targetMatch[1].replace(/,/g, ''));
-
-  // Size / shares
-  const sizeMatch = text.match(/([\d,]+)\s*(?:shares?|sh|contracts?|units?)/i)
-    || text.match(/(?:bought|sold|shorted|bought|purchased|buy)\s+([\d,]+)/i);
-  if (sizeMatch) size = parseInt(sizeMatch[1].replace(/,/g, ''));
-
-  // Fallback: if we have 2+ numbers and no entry, use heuristics
-  if (!entry && allNums.length > 0) {
-    // largest number that looks like a stock price (5-2000 range typically)
-    const priceNums = allNums.filter(n => n >= 1 && n <= 100000);
-    if (priceNums.length >= 1) entry = priceNums[0];
-    if (!size) {
-      // smallest number likely to be shares
-      const shareNums = allNums.filter(n => n >= 1 && n <= 10000 && n !== entry);
-      if (shareNums.length > 0) size = Math.round(shareNums[0]);
-    }
-  }
-
-  // ── Emotion ──
-  let emotion = null;
-  const emotionMap = [
-    { pattern: /\b(fomo|chased?|chase)\b/, label: 'FOMO' },
-    { pattern: /\b(revenge|angry|frustrated|frustrat)\b/, label: 'Revenge' },
-    { pattern: /\b(hope|hoping|praying)\b/, label: 'Hope' },
-    { pattern: /\b(confident?|conviction|strong)\b/, label: 'Confident' },
-    { pattern: /\b(calm|disciplin|patient|waited?|waiting)\b/, label: 'Patient' },
-    { pattern: /\b(patient|wait)\b/, label: 'Patient' },
-    { pattern: /\b(anxious|nervous|scared|fear)\b/, label: 'Anxious' },
-    { pattern: /\b(excited|excited)\b/, label: 'Excited' },
-  ];
-  for (const e of emotionMap) {
-    if (e.pattern.test(t)) { emotion = e.label; break; }
-  }
-
-  // ── Setup ──
-  let setup = null;
-  const setupMap = [
-    { pattern: /\b(breakout|broke out|break out)\b/, label: 'Breakout' },
-    { pattern: /\b(pullback|pull back|dip|dipped)\b/, label: 'Pullback' },
-    { pattern: /\b(momentum|momo)\b/, label: 'Momentum' },
-    { pattern: /\b(reversal|reverse|reversed|bounce)\b/, label: 'Reversal' },
-    { pattern: /\b(add(ed)?|scale|averaging)\b/, label: 'Add' },
-    { pattern: /\b(vwap)\b/, label: 'VWAP' },
-    { pattern: /\b(gap|gapped)\b/, label: 'Gap' },
-    { pattern: /\b(support|resist)\b/, label: 'S/R' },
-  ];
-  for (const s of setupMap) {
-    if (s.pattern.test(t)) { setup = s.label; break; }
-  }
-
-  // ── Thesis — everything after "thesis:" or "because" or "reason" ──
-  let thesis = null;
-  const thesisMatch = text.match(/(?:thesis|because|reason|note|think|thoughts?)\s*:?\s*(.+)/i);
-  if (thesisMatch) thesis = thesisMatch[1].trim();
-
-  // ── Determine if closed ──
-  const isClosed = exit !== null || /\b(closed?|exit|sold|out)\b/.test(t);
-
-  // ── AI comment ──
-  const comments = {
-    'FOMO': "FOMO entry noted — check if your edge was really there before entry.",
-    'Revenge': "Revenge trade flagged. These rarely end well — review your rules.",
-    'Hope': "Hope is not a strategy. Make sure you had a real thesis here.",
-    'Confident': "Solid conviction trade. Let it breathe.",
-    'Patient': "Disciplined entry. Patient trades tend to win more.",
-    'default': isClosed
-      ? `${ticker} trade closed — P&L logged.`
-      : `${ticker} trade open — stop and target set. Let your edge play out.`,
-  };
-  const aiComment = comments[emotion] || comments['default'];
-
-  return {
-    type: 'trade',
-    ticker,
-    direction,
-    entry,
-    exit: isClosed && !exit ? null : exit,
-    size,
-    stop,
-    target,
-    emotion,
-    setup,
-    thesis,
-    aiComment,
-  };
-}
-
-async function generateWeeklySummary(trades) {
-  const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
-  const weekTrades = trades.filter(t => new Date(t.date) >= weekAgo && t.pnl !== null);
-  if (weekTrades.length === 0) return { pnl: 0, winRate: 0, trades: 0, best: null, worst: null, comment: "No closed trades this week yet." };
-  const pnl = weekTrades.reduce((s, t) => s + t.pnl, 0);
-  const wins = weekTrades.filter(t => t.pnl > 0);
-  const winRate = Math.round(wins.length / weekTrades.length * 100);
-  const best = weekTrades.reduce((b, t) => t.pnl > (b?.pnl || -Infinity) ? t : b, null);
-  const worst = weekTrades.reduce((w, t) => t.pnl < (w?.pnl || Infinity) ? t : w, null);
-  return { pnl, winRate, trades: weekTrades.length, best, worst };
-}
-
-// ─── COMPONENTS ──────────────────────────────────────────────
-function EdgeLogLogo({ size = 20 }) {
-  return `<div style="display:flex;align-items:center;gap:8px">
-    <svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none">
-      <path d="M3 19 L12 6 L21 19" stroke="${T.ink}" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" fill="none"/>
-      <circle cx="12" cy="6" r="1.8" fill="${T.primary}"/>
-      <path d="M7 19 L17 19" stroke="${T.ink}" stroke-width="2" stroke-linecap="square"/>
-    </svg>
-    <div style="font-family:${F.display};font-size:20px;color:${T.ink};letter-spacing:-0.3px;line-height:1">
-      <em>Edge</em>Log
-    </div>
-  </div>`;
-}
-
-// ─── MAIN APP ────────────────────────────────────────────────
-class EdgeLogApp {
-  constructor() {
-    this.data = loadData();
-    this.page = localStorage.getItem('edgelog-page') || 'chat';
-    this.root = document.getElementById('root');
-    this.render();
-  }
-
-  setPage(page) {
-    this.page = page;
-    localStorage.setItem('edgelog-page', page);
-    this.render();
-  }
-
-  addTrade(trade) {
-    this.data.trades.unshift(trade);
-    saveData(this.data);
-  }
-
-  addMessage(msg) {
-    this.data.messages.push(msg);
-    saveData(this.data);
-  }
-
-  render() {
-    this.root.innerHTML = '';
-    const app = document.createElement('div');
-    app.style.cssText = `height:100%;display:flex;flex-direction:column;background:${T.bg};position:relative;max-width:430px;margin:0 auto;`;
-
-    // Content area
-    const content = document.createElement('div');
-    content.style.cssText = 'flex:1;overflow:hidden;position:relative;';
-
-    if (this.page === 'chat') {
-      this.renderChat(content);
-    } else if (this.page === 'log') {
-      this.renderLogbook(content);
-    } else {
-      this.renderDashboard(content);
-    }
-
-    // Bottom nav
-    const nav = this.renderNav();
-
+class EdgeLogApp{
+  constructor(){this.data=loadData();this.page=localStorage.getItem('edgelog-page')||'chat';this.root=document.getElementById('root');this.render();}
+  setPage(p){this.page=p;localStorage.setItem('edgelog-page',p);this.render();}
+  addTrade(t){this.data.trades.unshift(t);saveData(this.data);}
+  addMessage(m){this.data.messages.push(m);saveData(this.data);}
+  render(){
+    this.root.innerHTML='';
+    const app=document.createElement('div');
+    app.style.cssText=`height:100%;display:flex;flex-direction:column;background:${T.bg};position:relative;max-width:430px;margin:0 auto;`;
+    const content=document.createElement('div');
+    content.style.cssText='flex:1;overflow:hidden;position:relative;';
+    if(this.page==='chat')this.renderChat(content);
+    else if(this.page==='log')this.renderLogbook(content);
+    else this.renderDashboard(content);
     app.appendChild(content);
-    app.appendChild(nav);
+    app.appendChild(this.renderNav());
     this.root.appendChild(app);
   }
-
-  renderNav() {
-    const nav = document.createElement('div');
-    nav.style.cssText = `background:${T.bg};border-top:1px solid ${T.line};padding:10px 0 calc(10px + env(safe-area-inset-bottom));display:flex;justify-content:space-around;flex-shrink:0;z-index:40;`;
-
-    const items = [
-      { id: 'chat', label: 'Chat', icon: this.chatIcon.bind(this) },
-      { id: 'log', label: 'Logbook', icon: this.logIcon.bind(this) },
-      { id: 'dash', label: 'Edge', icon: this.dashIcon.bind(this) },
-    ];
-
-    items.forEach(item => {
-      const active = this.page === item.id;
-      const btn = document.createElement('button');
-      btn.style.cssText = `background:none;border:none;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 20px;position:relative;`;
-      if (active) {
-        const bar = document.createElement('div');
-        bar.style.cssText = `position:absolute;top:-10px;left:50%;transform:translateX(-50%);width:20px;height:2px;background:${T.primary};`;
-        btn.appendChild(bar);
-      }
-      const iconSvg = document.createElement('div');
-      iconSvg.innerHTML = item.icon(active);
-      const label = document.createElement('span');
-      label.style.cssText = `font-family:${F.mono};font-size:9px;font-weight:600;color:${active ? T.primary : T.inkMute};letter-spacing:1.5px;text-transform:uppercase;`;
-      label.textContent = item.label;
-      btn.appendChild(iconSvg);
-      btn.appendChild(label);
-      btn.onclick = () => this.setPage(item.id);
-      nav.appendChild(btn);
+  renderNav(){
+    const nav=document.createElement('div');
+    nav.style.cssText=`background:${T.bg};border-top:1px solid ${T.line};padding:10px 0 calc(10px + env(safe-area-inset-bottom));display:flex;justify-content:space-around;flex-shrink:0;z-index:40;`;
+    [['chat','Chat',`<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M3 6h18v10H9l-6 5V6z" stroke="COLOR" stroke-width="1.6" fill="FILL"/></svg>`],['log','Logbook',`<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 4h16v16H4zM4 9h16M4 14h16M9 4v16" stroke="COLOR" stroke-width="1.6" fill="FILL"/></svg>`],['dash','Edge',`<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M3 17 L9 11 L13 14 L21 6" stroke="COLOR" stroke-width="1.8" fill="none"/><path d="M3 21 L21 21" stroke="COLOR" stroke-width="1.6"/></svg>`]].forEach(([id,label,svg])=>{
+      const active=this.page===id;const c=active?T.primary:T.inkMute;
+      const btn=document.createElement('button');
+      btn.style.cssText='background:none;border:none;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 20px;position:relative;';
+      if(active){const bar=document.createElement('div');bar.style.cssText=`position:absolute;top:-10px;left:50%;transform:translateX(-50%);width:20px;height:2px;background:${T.primary};`;btn.appendChild(bar);}
+      const ic=document.createElement('div');ic.innerHTML=svg.replace(/COLOR/g,c).replace('FILL',active?c+'18':'none');
+      const lbl=document.createElement('span');lbl.style.cssText=`font-family:${F.mono};font-size:9px;font-weight:600;color:${active?T.primary:T.inkMute};letter-spacing:1.5px;text-transform:uppercase;`;lbl.textContent=label;
+      btn.appendChild(ic);btn.appendChild(lbl);btn.onclick=()=>this.setPage(id);nav.appendChild(btn);
     });
     return nav;
   }
-
-  chatIcon(active) {
-    const c = active ? T.primary : T.inkMute;
-    return `<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M3 6h18v10H9l-6 5V6z" stroke="${c}" stroke-width="1.6" stroke-linejoin="miter" fill="${active ? c+'18' : 'none'}"/></svg>`;
+  renderChat(container){
+    container.style.cssText='flex:1;overflow:hidden;display:flex;flex-direction:column;position:relative;';
+    const header=document.createElement('div');
+    header.style.cssText=`background:${T.bg};padding:calc(env(safe-area-inset-top) + 12px) 20px 12px;border-bottom:1px solid ${T.line};flex-shrink:0;`;
+    const topRow=document.createElement('div');topRow.style.cssText='display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;';
+    topRow.innerHTML=`<div style="display:flex;align-items:center;gap:8px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M3 19 L12 6 L21 19" stroke="${T.ink}" stroke-width="2" stroke-linecap="square" fill="none"/><circle cx="12" cy="6" r="1.8" fill="${T.primary}"/><path d="M7 19 L17 19" stroke="${T.ink}" stroke-width="2" stroke-linecap="square"/></svg><div style="font-family:${F.display};font-size:20px;color:${T.ink};letter-spacing:-0.3px"><em>Edge</em>Log</div></div><div style="display:flex;align-items:center;gap:8px"><div style="width:6px;height:6px;border-radius:50%;background:${T.win};box-shadow:0 0 8px ${T.win}"></div><span style="font-family:${F.mono};font-size:10px;color:${T.inkSoft};letter-spacing:1.5px">LIVE</span></div>`;
+    const stats=this.computeStats();
+    const statsRow=document.createElement('div');statsRow.style.cssText='display:flex;gap:12px;';
+    [{label:'Total P&L',value:fmtMoney(stats.totalPnl,{sign:true}),color:stats.totalPnl>=0?T.win:T.loss},{label:'Open',value:stats.openCount},{label:'Streak',value:stats.streak+(stats.streak>0?' W':'')}].forEach(s=>{const el=document.createElement('div');el.style.cssText='flex:1;';el.innerHTML=`<div style="font-family:${F.mono};font-size:9px;font-weight:600;color:${T.inkMute};letter-spacing:1.5px;text-transform:uppercase;margin-bottom:2px">${s.label}</div><div style="font-family:${F.display};font-size:22px;color:${s.color||T.ink};line-height:1">${s.value}</div>`;statsRow.appendChild(el);});
+    header.appendChild(topRow);header.appendChild(statsRow);
+    const msgArea=document.createElement('div');msgArea.id='msg-area';msgArea.style.cssText='flex:1;overflow-y:auto;padding:16px 16px 100px;display:flex;flex-direction:column;gap:10px;';
+    if(!this.data.messages.length){const w=document.createElement('div');w.style.cssText='align-self:flex-start;max-width:88%;';w.innerHTML=`<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;margin-left:2px"><div style="width:16px;height:16px;border-radius:3px;background:${T.ink};color:${T.bg};font-family:${F.mono};font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center">E</div><span style="font-family:${F.mono};font-size:9px;font-weight:700;letter-spacing:1.5px;color:${T.inkMute}">EDGE</span></div><div style="background:transparent;padding:8px 12px;font-family:${F.ui};font-size:14px;line-height:1.45;color:${T.inkSoft};font-style:italic;border-left:2px solid ${T.gold}">Hey. Type a trade in plain English — I'll parse it, confirm the details, and log it. You can also ask me how you're doing.</div>`;msgArea.appendChild(w);}
+    this.data.messages.forEach(m=>{const el=this.createMessageEl(m);if(el)msgArea.appendChild(el);});
+    const inputBar=document.createElement('div');inputBar.style.cssText=`position:absolute;bottom:8px;left:12px;right:12px;background:${T.surface};border-radius:24px;border:1px solid ${T.line};box-shadow:0 8px 24px rgba(0,0,0,0.08);padding:6px 6px 6px 14px;display:flex;align-items:center;gap:8px;z-index:30;`;
+    const input=document.createElement('input');input.placeholder='Log a trade, or ask anything…';input.style.cssText=`flex:1;border:none;outline:none;background:transparent;font-family:${F.ui};font-size:14px;color:${T.ink};padding:8px 0;`;
+    const sendBtn=document.createElement('button');sendBtn.style.cssText=`width:36px;height:36px;border-radius:50%;border:none;background:${T.bgDeep};color:${T.inkMute};display:flex;align-items:center;justify-content:center;transition:all 0.2s;flex-shrink:0;`;sendBtn.innerHTML=`<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7 L12 2 L8 7 L12 12 Z" fill="currentColor"/></svg>`;
+    input.addEventListener('input',()=>{sendBtn.style.background=input.value.trim()?T.primary:T.bgDeep;sendBtn.style.color=input.value.trim()?T.bg:T.inkMute;});
+    const doSend=async()=>{const text=input.value.trim();if(!text)return;input.value='';sendBtn.style.background=T.bgDeep;sendBtn.style.color=T.inkMute;await this.handleUserMessage(text,msgArea);};
+    input.addEventListener('keydown',e=>{if(e.key==='Enter')doSend();});sendBtn.onclick=doSend;
+    inputBar.appendChild(input);inputBar.appendChild(sendBtn);
+    container.appendChild(header);container.appendChild(msgArea);container.appendChild(inputBar);
+    setTimeout(()=>{msgArea.scrollTop=msgArea.scrollHeight;},50);
   }
-  logIcon(active) {
-    const c = active ? T.primary : T.inkMute;
-    return `<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 4h16v16H4zM4 9h16M4 14h16M9 4v16" stroke="${c}" stroke-width="1.6" fill="${active ? c+'18' : 'none'}"/></svg>`;
-  }
-  dashIcon(active) {
-    const c = active ? T.primary : T.inkMute;
-    return `<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M3 17 L9 11 L13 14 L21 6" stroke="${c}" stroke-width="1.8" stroke-linejoin="miter" stroke-linecap="square" fill="none"/><path d="M3 21 L21 21" stroke="${c}" stroke-width="1.6"/></svg>`;
-  }
-
-  // ── CHAT PAGE ────────────────────────────────────────────────
-  renderChat(container) {
-    container.style.cssText = 'flex:1;overflow:hidden;display:flex;flex-direction:column;position:relative;';
-
-    // Header
-    const header = document.createElement('div');
-    header.style.cssText = `background:${T.bg};padding:calc(env(safe-area-inset-top) + 12px) 20px 12px;border-bottom:1px solid ${T.line};flex-shrink:0;`;
-
-    const topRow = document.createElement('div');
-    topRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;';
-    topRow.innerHTML = `
-      <div style="display:flex;align-items:center;gap:8px">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-          <path d="M3 19 L12 6 L21 19" stroke="${T.ink}" stroke-width="2" stroke-linecap="square" fill="none"/>
-          <circle cx="12" cy="6" r="1.8" fill="${T.primary}"/>
-          <path d="M7 19 L17 19" stroke="${T.ink}" stroke-width="2" stroke-linecap="square"/>
-        </svg>
-        <div style="font-family:${F.display};font-size:20px;color:${T.ink};letter-spacing:-0.3px"><em>Edge</em>Log</div>
-      </div>
-      <div style="display:flex;align-items:center;gap:8px">
-        <div style="width:6px;height:6px;border-radius:50%;background:${T.win};box-shadow:0 0 8px ${T.win}"></div>
-        <span style="font-family:${F.mono};font-size:10px;color:${T.inkSoft};letter-spacing:1.5px">LIVE</span>
-      </div>`;
-
-    // Stats strip
-    const stats = this.computeStats();
-    const statsRow = document.createElement('div');
-    statsRow.style.cssText = 'display:flex;gap:12px;';
-    [
-      { label: 'Total P&L', value: fmtMoney(stats.totalPnl, {sign:true}), color: stats.totalPnl >= 0 ? T.win : T.loss },
-      { label: 'Open', value: stats.openCount },
-      { label: 'Streak', value: stats.streak + (stats.streak > 0 ? ' W' : '') },
-    ].forEach(s => {
-      const el = document.createElement('div');
-      el.style.cssText = 'flex:1;';
-      el.innerHTML = `
-        <div style="font-family:${F.mono};font-size:9px;font-weight:600;color:${T.inkMute};letter-spacing:1.5px;text-transform:uppercase;margin-bottom:2px">${s.label}</div>
-        <div style="font-family:${F.display};font-size:22px;color:${s.color || T.ink};line-height:1;font-feature-settings:'tnum'">${s.value}</div>`;
-      statsRow.appendChild(el);
-    });
-
-    header.appendChild(topRow);
-    header.appendChild(statsRow);
-
-    // Messages
-    const msgArea = document.createElement('div');
-    msgArea.id = 'msg-area';
-    msgArea.style.cssText = 'flex:1;overflow-y:auto;padding:16px 16px 100px;display:flex;flex-direction:column;gap:10px;';
-
-    // Welcome message if no messages
-    if (this.data.messages.length === 0) {
-      const welcome = document.createElement('div');
-      welcome.style.cssText = `align-self:flex-start;max-width:88%;`;
-      welcome.innerHTML = `
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;margin-left:2px">
-          <div style="width:16px;height:16px;border-radius:3px;background:${T.ink};color:${T.bg};font-family:${F.mono};font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center">E</div>
-          <span style="font-family:${F.mono};font-size:9px;font-weight:700;letter-spacing:1.5px;color:${T.inkMute}">EDGE</span>
-        </div>
-        <div style="background:transparent;padding:8px 12px;font-family:${F.ui};font-size:14px;line-height:1.45;color:${T.inkSoft};font-style:italic;border-left:2px solid ${T.gold}">
-          Hey. Type a trade in plain English — I'll parse it, confirm the details, and log it. You can also ask me how you're doing.
-        </div>`;
-      msgArea.appendChild(welcome);
-    }
-
-    // Render existing messages
-    this.data.messages.forEach(msg => {
-      const el = this.createMessageEl(msg);
-      if (el) msgArea.appendChild(el);
-    });
-
-    // Input bar
-    const inputBar = document.createElement('div');
-    inputBar.style.cssText = `position:absolute;bottom:8px;left:12px;right:12px;background:${T.surface};border-radius:24px;border:1px solid ${T.line};box-shadow:0 8px 24px rgba(0,0,0,0.08);padding:6px 6px 6px 14px;display:flex;align-items:center;gap:8px;z-index:30;`;
-
-    const input = document.createElement('input');
-    input.placeholder = 'Log a trade, or ask anything…';
-    input.style.cssText = `flex:1;border:none;outline:none;background:transparent;font-family:${F.ui};font-size:14px;color:${T.ink};padding:8px 0;`;
-
-    const sendBtn = document.createElement('button');
-    sendBtn.style.cssText = `width:36px;height:36px;border-radius:50%;border:none;background:${T.bgDeep};color:${T.inkMute};display:flex;align-items:center;justify-content:center;transition:all 0.2s;flex-shrink:0;`;
-    sendBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7 L12 2 L8 7 L12 12 Z" fill="currentColor"/></svg>`;
-
-    input.addEventListener('input', () => {
-      sendBtn.style.background = input.value.trim() ? T.primary : T.bgDeep;
-      sendBtn.style.color = input.value.trim() ? T.bg : T.inkMute;
-    });
-
-    const doSend = async () => {
-      const text = input.value.trim();
-      if (!text) return;
-      input.value = '';
-      sendBtn.style.background = T.bgDeep;
-      sendBtn.style.color = T.inkMute;
-      await this.handleUserMessage(text, msgArea);
-    };
-
-    input.addEventListener('keydown', e => { if (e.key === 'Enter') doSend(); });
-    sendBtn.onclick = doSend;
-
-    inputBar.appendChild(input);
-    inputBar.appendChild(sendBtn);
-
-    container.appendChild(header);
-    container.appendChild(msgArea);
-    container.appendChild(inputBar);
-
-    // Scroll to bottom
-    setTimeout(() => { msgArea.scrollTop = msgArea.scrollHeight; }, 50);
-  }
-
-  createMessageEl(msg) {
-    const wrap = document.createElement('div');
-
-    if (msg.role === 'user') {
-      wrap.style.cssText = `align-self:flex-end;max-width:82%;background:${T.primary};color:${T.bg};border-radius:14px 14px 4px 14px;padding:9px 13px;font-family:${F.ui};font-size:14px;line-height:1.4;animation:edgeFade 0.3s ease-out;`;
-      wrap.textContent = msg.text;
-    } else if (msg.role === 'ai') {
-      wrap.style.cssText = 'align-self:flex-start;max-width:92%;display:flex;flex-direction:column;gap:4px;animation:edgeFade 0.3s ease-out;';
-      const aiLabel = document.createElement('div');
-      aiLabel.style.cssText = 'display:flex;align-items:center;gap:6px;margin-left:2px;';
-      aiLabel.innerHTML = `
-        <div style="width:16px;height:16px;border-radius:3px;background:${T.ink};color:${T.bg};font-family:${F.mono};font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center">E</div>
-        <span style="font-family:${F.mono};font-size:9px;font-weight:700;letter-spacing:1.5px;color:${T.inkMute}">EDGE</span>`;
-      wrap.appendChild(aiLabel);
-
-      if (msg.type === 'text') {
-        const bubble = document.createElement('div');
-        bubble.style.cssText = `background:transparent;padding:6px 10px;font-family:${F.ui};font-size:14px;line-height:1.45;color:${T.inkSoft};font-style:italic;border-left:2px solid ${T.gold};`;
-        bubble.textContent = msg.text;
-        wrap.appendChild(bubble);
-      } else if (msg.type === 'parse') {
-        wrap.appendChild(this.createParseCard(msg.parsed, msg.tradeId));
-      } else if (msg.type === 'summary') {
-        wrap.appendChild(this.createSummaryCard(msg.summary));
-      }
+  createMessageEl(msg){
+    const wrap=document.createElement('div');
+    if(msg.role==='user'){wrap.style.cssText=`align-self:flex-end;max-width:82%;background:${T.primary};color:${T.bg};border-radius:14px 14px 4px 14px;padding:9px 13px;font-family:${F.ui};font-size:14px;line-height:1.4;animation:edgeFade 0.3s ease-out;`;wrap.textContent=msg.text;}
+    else if(msg.role==='ai'){
+      wrap.style.cssText='align-self:flex-start;max-width:92%;display:flex;flex-direction:column;gap:4px;animation:edgeFade 0.3s ease-out;';
+      const al=document.createElement('div');al.style.cssText='display:flex;align-items:center;gap:6px;margin-left:2px;';al.innerHTML=`<div style="width:16px;height:16px;border-radius:3px;background:${T.ink};color:${T.bg};font-family:${F.mono};font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center">E</div><span style="font-family:${F.mono};font-size:9px;font-weight:700;letter-spacing:1.5px;color:${T.inkMute}">EDGE</span>`;
+      wrap.appendChild(al);
+      if(msg.type==='text'){const b=document.createElement('div');b.style.cssText=`background:transparent;padding:6px 10px;font-family:${F.ui};font-size:14px;line-height:1.45;color:${T.inkSoft};font-style:italic;border-left:2px solid ${T.gold};`;b.textContent=msg.text;wrap.appendChild(b);}
+      else if(msg.type==='parse')wrap.appendChild(this.createParseCard(msg.parsed,msg.tradeId));
+      else if(msg.type==='summary')wrap.appendChild(this.createSummaryCard(msg.summary));
     }
     return wrap;
   }
-
-  createParseCard(parsed, tradeId) {
-    const card = document.createElement('div');
-    const isClosed = parsed.exit !== null;
-    card.style.cssText = `background:${T.surface};border:1px solid ${T.line};border-left:3px solid ${T.primary};border-radius:10px;padding:10px 12px 12px;max-width:92%;`;
-
-    const pnl = (isClosed && parsed.entry && parsed.exit && parsed.size)
-      ? (parsed.exit - parsed.entry) * parsed.size * (parsed.direction === 'Short' ? -1 : 1)
-      : null;
-    const pnlPct = (pnl !== null && parsed.entry) ? (pnl / (parsed.entry * parsed.size)) * 100 : null;
-
-    card.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding-bottom:6px;border-bottom:1px dashed ${T.line}">
-        <div style="display:flex;align-items:center;gap:8px">
-          <span style="font-family:${F.mono};font-size:9px;font-weight:700;color:${T.primary};letter-spacing:2px">PARSED</span>
-          <span style="font-family:${F.mono};font-size:12px;font-weight:700;color:${T.ink};padding:2px 7px;border:1px solid ${T.line};border-radius:4px;background:${T.surface}">${parsed.ticker || '?'}</span>
-          <span style="font-family:${F.mono};font-size:10px;font-weight:600;color:${parsed.direction === 'Long' ? T.win : parsed.direction === 'Add' ? T.gold : T.loss};padding:2px 6px;border:1px solid ${parsed.direction === 'Long' ? T.win : parsed.direction === 'Add' ? T.gold : T.loss}40;border-radius:3px;background:${parsed.direction === 'Long' ? T.win : parsed.direction === 'Add' ? T.gold : T.loss}0F">
-            ${parsed.direction === 'Long' ? '↑ ' : parsed.direction === 'Short' ? '↓ ' : '+ '}${parsed.direction || '?'}
-          </span>
-        </div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px 12px;margin-bottom:12px">
-        ${parsed.entry ? `<div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Entry</div><div style="font-family:${F.mono};font-size:13px;font-weight:600;color:${T.ink}">${fmtMoney(parsed.entry)}</div></div>` : ''}
-        ${parsed.size ? `<div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Size</div><div style="font-family:${F.mono};font-size:13px;font-weight:600;color:${T.ink}">${parsed.size} sh</div></div>` : ''}
-        ${parsed.exit ? `<div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Exit</div><div style="font-family:${F.mono};font-size:13px;font-weight:600;color:${T.ink}">${fmtMoney(parsed.exit)}</div></div>` : ''}
-        ${!parsed.exit && parsed.stop ? `<div><div style="font-family:${F.mono};font-size:9px;color:${T.loss};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Stop</div><div style="font-family:${F.mono};font-size:13px;font-weight:600;color:${T.loss}">${fmtMoney(parsed.stop)}</div></div>` : ''}
-        ${!parsed.exit && parsed.target ? `<div><div style="font-family:${F.mono};font-size:9px;color:${T.win};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Target</div><div style="font-family:${F.mono};font-size:13px;font-weight:600;color:${T.win}">${fmtMoney(parsed.target)}</div></div>` : ''}
-        ${pnl !== null ? `<div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">P&L</div><div style="font-family:${F.mono};font-size:13px;font-weight:600;color:${pnl > 0 ? T.win : T.loss}">${fmtMoney(pnl, {sign:true})}</div></div>` : ''}
-        ${pnlPct !== null ? `<div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Return</div><div style="font-family:${F.mono};font-size:13px;font-weight:600;color:${pnlPct > 0 ? T.win : T.loss}">${fmtPct(pnlPct)}</div></div>` : ''}
-        ${parsed.emotion ? `<div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Emotion</div><div style="font-family:${F.mono};font-size:12px;font-weight:600;color:${T.ink}">${parsed.emotion}</div></div>` : ''}
-        ${parsed.setup ? `<div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Setup</div><div style="font-family:${F.mono};font-size:12px;font-weight:600;color:${T.ink}">${parsed.setup}</div></div>` : ''}
-      </div>
-      ${parsed.thesis ? `<div style="font-family:${F.mono};font-size:11px;color:${T.inkSoft};font-style:italic;margin-bottom:12px;padding-top:8px;border-top:1px dashed ${T.line}">→ ${parsed.thesis}</div>` : ''}
-      <div id="confirm-actions-${tradeId}" style="display:flex;gap:6px;padding-top:10px;border-top:1px solid ${T.line}">
-        <button onclick="window.__edgelog.confirmTrade('${tradeId}')" style="flex:1;background:${T.primary};color:${T.bg};border:none;border-radius:6px;padding:7px 10px;font-family:${F.mono};font-size:10px;font-weight:700;letter-spacing:1.5px">✓ CONFIRM</button>
-        <button onclick="window.__edgelog.discardTrade('${tradeId}')" style="background:transparent;color:${T.ink};border:1px solid ${T.line};border-radius:6px;padding:7px 10px;font-family:${F.mono};font-size:10px;font-weight:600;letter-spacing:1.5px">DISCARD</button>
-      </div>`;
-
+  createParseCard(parsed,tradeId){
+    const card=document.createElement('div');
+    const isClosed=parsed.exit!==null;
+    card.style.cssText=`background:${T.surface};border:1px solid ${T.line};border-left:3px solid ${T.primary};border-radius:10px;padding:10px 12px 12px;max-width:92%;`;
+    const pnl=(isClosed&&parsed.entry&&parsed.exit&&parsed.size)?(parsed.exit-parsed.entry)*parsed.size*(parsed.direction==='Short'?-1:1):null;
+    const pnlPct=(pnl!==null&&parsed.entry)?(pnl/(parsed.entry*parsed.size))*100:null;
+    const dc=parsed.direction==='Long'?T.win:parsed.direction==='Add'?T.gold:T.loss;
+    card.innerHTML=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px dashed ${T.line}"><span style="font-family:${F.mono};font-size:9px;font-weight:700;color:${T.primary};letter-spacing:2px">PARSED</span><span style="font-family:${F.mono};font-size:12px;font-weight:700;color:${T.ink};padding:2px 7px;border:1px solid ${T.line};border-radius:4px">${parsed.ticker||'?'}</span><span style="font-family:${F.mono};font-size:10px;font-weight:600;color:${dc};padding:2px 6px;border:1px solid ${dc}40;border-radius:3px;background:${dc}0F">${parsed.direction==='Long'?'↑ ':parsed.direction==='Short'?'↓ ':'+ '}${parsed.direction||'?'}</span></div><div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px 12px;margin-bottom:12px">${parsed.entry?`<div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Entry</div><div style="font-family:${F.mono};font-size:13px;font-weight:600;color:${T.ink}">${fmtMoney(parsed.entry)}</div></div>`:''}${parsed.size?`<div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Size</div><div style="font-family:${F.mono};font-size:13px;font-weight:600;color:${T.ink}">${parsed.size} sh</div></div>`:''}${parsed.exit?`<div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Exit</div><div style="font-family:${F.mono};font-size:13px;font-weight:600;color:${T.ink}">${fmtMoney(parsed.exit)}</div></div>`:''}${!parsed.exit&&parsed.stop?`<div><div style="font-family:${F.mono};font-size:9px;color:${T.loss};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Stop</div><div style="font-family:${F.mono};font-size:13px;font-weight:600;color:${T.loss}">${fmtMoney(parsed.stop)}</div></div>`:''}${!parsed.exit&&parsed.target?`<div><div style="font-family:${F.mono};font-size:9px;color:${T.win};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Target</div><div style="font-family:${F.mono};font-size:13px;font-weight:600;color:${T.win}">${fmtMoney(parsed.target)}</div></div>`:''}${pnl!==null?`<div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">P&L</div><div style="font-family:${F.mono};font-size:13px;font-weight:600;color:${pnl>0?T.win:T.loss}">${fmtMoney(pnl,{sign:true})}</div></div>`:''}${pnlPct!==null?`<div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Return</div><div style="font-family:${F.mono};font-size:13px;font-weight:600;color:${pnlPct>0?T.win:T.loss}">${fmtPct(pnlPct)}</div></div>`:''}${parsed.emotion?`<div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Emotion</div><div style="font-family:${F.mono};font-size:12px;font-weight:600;color:${T.ink}">${parsed.emotion}</div></div>`:''}${parsed.setup?`<div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Setup</div><div style="font-family:${F.mono};font-size:12px;font-weight:600;color:${T.ink}">${parsed.setup}</div></div>`:''}</div>${parsed.thesis?`<div style="font-family:${F.mono};font-size:11px;color:${T.inkSoft};font-style:italic;margin-bottom:12px;padding-top:8px;border-top:1px dashed ${T.line}">→ ${parsed.thesis}</div>`:''}<div id="confirm-actions-${tradeId}" style="display:flex;gap:6px;padding-top:10px;border-top:1px solid ${T.line}"><button onclick="window.__edgelog.confirmTrade('${tradeId}')" style="flex:1;background:${T.primary};color:${T.bg};border:none;border-radius:6px;padding:7px 10px;font-family:${F.mono};font-size:10px;font-weight:700;letter-spacing:1.5px">✓ CONFIRM</button><button onclick="window.__edgelog.discardTrade('${tradeId}')" style="background:transparent;color:${T.ink};border:1px solid ${T.line};border-radius:6px;padding:7px 10px;font-family:${F.mono};font-size:10px;font-weight:600;letter-spacing:1.5px">DISCARD</button></div>`;
     return card;
   }
-
-  createSummaryCard(summary) {
-    const card = document.createElement('div');
-    card.style.cssText = `background:${T.surface};border:1px solid ${T.line};border-radius:10px;padding:12px;max-width:92%;`;
-    const pnlColor = summary.pnl >= 0 ? T.win : T.loss;
-    card.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-        <span style="font-family:${F.mono};font-size:9px;font-weight:700;color:${T.primary};letter-spacing:2px">THIS WEEK</span>
-        <span style="font-family:${F.mono};font-size:10px;color:${T.inkMute}">${summary.dateRange || ''}</span>
-      </div>
-      <div style="font-family:${F.display};font-size:36px;color:${pnlColor};line-height:1;font-feature-settings:'tnum';margin-bottom:10px">${fmtMoney(summary.pnl, {sign:true})}</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;padding-top:10px;border-top:1px dashed ${T.line}">
-        <div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Win rate</div><div style="font-family:${F.mono};font-size:14px;font-weight:600;color:${T.ink}">${summary.winRate}%</div></div>
-        <div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Trades</div><div style="font-family:${F.mono};font-size:14px;font-weight:600;color:${T.ink}">${summary.trades}</div></div>
-        ${summary.best ? `<div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Best</div><div style="font-family:${F.mono};font-size:12px;font-weight:700;color:${T.ink}">${summary.best.ticker}</div><div style="font-family:${F.mono};font-size:11px;color:${T.win}">${fmtMoney(summary.best.pnl, {sign:true})}</div></div>` : ''}
-      </div>`;
+  createSummaryCard(summary){
+    const card=document.createElement('div');card.style.cssText=`background:${T.surface};border:1px solid ${T.line};border-radius:10px;padding:12px;max-width:92%;`;
+    const pc=summary.pnl>=0?T.win:T.loss;
+    card.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><span style="font-family:${F.mono};font-size:9px;font-weight:700;color:${T.primary};letter-spacing:2px">THIS WEEK</span><span style="font-family:${F.mono};font-size:10px;color:${T.inkMute}">${summary.dateRange||''}</span></div><div style="font-family:${F.display};font-size:36px;color:${pc};line-height:1;margin-bottom:10px">${fmtMoney(summary.pnl,{sign:true})}</div><div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;padding-top:10px;border-top:1px dashed ${T.line}"><div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Win rate</div><div style="font-family:${F.mono};font-size:14px;font-weight:600;color:${T.ink}">${summary.winRate}%</div></div><div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Trades</div><div style="font-family:${F.mono};font-size:14px;font-weight:600;color:${T.ink}">${summary.trades}</div></div>${summary.best?`<div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Best</div><div style="font-family:${F.mono};font-size:12px;font-weight:700;color:${T.ink}">${summary.best.ticker}</div><div style="font-family:${F.mono};font-size:11px;color:${T.win}">${fmtMoney(summary.best.pnl,{sign:true})}</div></div>`:''}</div>`;
     return card;
   }
-
-  async handleUserMessage(text, msgArea) {
-    // Add user message
-    const userMsg = { id: `u_${Date.now()}`, role: 'user', text, time: nowTime() };
-    this.addMessage(userMsg);
-    const userEl = this.createMessageEl(userMsg);
-    msgArea.appendChild(userEl);
-    msgArea.scrollTop = msgArea.scrollHeight;
-
-    // Typing indicator
-    const typingEl = document.createElement('div');
-    typingEl.style.cssText = 'align-self:flex-start;animation:edgeFade 0.3s ease-out;';
-    typingEl.innerHTML = `
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;margin-left:2px">
-        <div style="width:16px;height:16px;border-radius:3px;background:${T.ink};color:${T.bg};font-family:${F.mono};font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center">E</div>
-      </div>
-      <div style="display:flex;gap:4px;padding:10px 12px;background:${T.surface};border:1px solid ${T.line};border-radius:10px;width:fit-content">
-        ${[0,1,2].map(i => `<div style="width:5px;height:5px;border-radius:50%;background:${T.inkMute};animation:edgeDot 1.2s ${i*0.15}s infinite ease-in-out"></div>`).join('')}
-      </div>`;
-    msgArea.appendChild(typingEl);
-    msgArea.scrollTop = msgArea.scrollHeight;
-
-    try {
-      const parsed = await parseTradeWithAI(text);
-      msgArea.removeChild(typingEl);
-
-      const tradeId = `t_${Date.now()}`;
-
-      if (parsed.type === 'query') {
-        // Generate weekly summary
-        const summary = await generateWeeklySummary(this.data.trades);
-        const now = new Date();
-        const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
-        summary.dateRange = `${weekAgo.toLocaleDateString('en-US',{month:'short',day:'numeric'})}–${now.toLocaleDateString('en-US',{month:'short',day:'numeric'})}`;
-
-        const aiMsg = { id: `a_${Date.now()}`, role: 'ai', type: 'summary', summary, time: nowTime() };
-        this.addMessage(aiMsg);
-        msgArea.appendChild(this.createMessageEl(aiMsg));
-
-        if (parsed.aiComment) {
-          const commentMsg = { id: `a_${Date.now()+1}`, role: 'ai', type: 'text', text: parsed.aiComment, time: nowTime() };
-          this.addMessage(commentMsg);
-          msgArea.appendChild(this.createMessageEl(commentMsg));
-        }
-      } else if (parsed.type === 'trade' && parsed.ticker) {
-        // Store pending trade
-        const pnl = (parsed.exit && parsed.entry && parsed.size)
-          ? (parsed.exit - parsed.entry) * parsed.size * (parsed.direction === 'Short' ? -1 : 1)
-          : null;
-        const pnlPct = (pnl !== null && parsed.entry && parsed.size) ? (pnl / (parsed.entry * parsed.size)) * 100 : null;
-        const rMultiple = (pnl !== null && parsed.stop && parsed.entry && parsed.size)
-          ? pnl / (Math.abs(parsed.entry - parsed.stop) * parsed.size)
-          : null;
-
-        const pendingTrade = {
-          id: tradeId,
-          date: todayISO(),
-          ticker: parsed.ticker,
-          direction: parsed.direction || 'Long',
-          entry: parsed.entry,
-          exit: parsed.exit || null,
-          size: parsed.size,
-          stop: parsed.stop,
-          target: parsed.target,
-          pnl,
-          pnlPct,
-          r: rMultiple,
-          setup: parsed.setup,
-          emotion: parsed.emotion,
-          thesis: parsed.thesis,
-          status: parsed.exit ? 'Closed' : 'Open',
-          confirmed: false,
-        };
-
-        window.__pendingTrades = window.__pendingTrades || {};
-        window.__pendingTrades[tradeId] = pendingTrade;
-
-        const aiMsg = { id: `a_${Date.now()}`, role: 'ai', type: 'parse', parsed, tradeId, time: nowTime() };
-        this.addMessage(aiMsg);
-        msgArea.appendChild(this.createMessageEl(aiMsg));
-
-        if (parsed.aiComment) {
-          const commentMsg = { id: `a_${Date.now()+1}`, role: 'ai', type: 'text', text: parsed.aiComment, time: nowTime() };
-          this.addMessage(commentMsg);
-          msgArea.appendChild(this.createMessageEl(commentMsg));
-        }
-      } else {
-        // General note/response
-        const commentMsg = { id: `a_${Date.now()}`, role: 'ai', type: 'text', text: parsed.aiComment || "Got it.", time: nowTime() };
-        this.addMessage(commentMsg);
-        msgArea.appendChild(this.createMessageEl(commentMsg));
-      }
-    } catch(err) {
-      msgArea.removeChild(typingEl);
-      const errMsg = { id: `a_${Date.now()}`, role: 'ai', type: 'text', text: "Hmm, had trouble parsing that. Try again with ticker, direction, price, and size.", time: nowTime() };
-      this.addMessage(errMsg);
-      msgArea.appendChild(this.createMessageEl(errMsg));
-    }
-
-    msgArea.scrollTop = msgArea.scrollHeight;
+  async handleUserMessage(text,msgArea){
+    const userMsg={id:`u_${Date.now()}`,role:'user',text,time:nowTime()};this.addMessage(userMsg);msgArea.appendChild(this.createMessageEl(userMsg));msgArea.scrollTop=msgArea.scrollHeight;
+    const typingEl=document.createElement('div');typingEl.style.cssText='align-self:flex-start;animation:edgeFade 0.3s ease-out;';typingEl.innerHTML=`<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;margin-left:2px"><div style="width:16px;height:16px;border-radius:3px;background:${T.ink};color:${T.bg};font-family:${F.mono};font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center">E</div></div><div style="display:flex;gap:4px;padding:10px 12px;background:${T.surface};border:1px solid ${T.line};border-radius:10px;width:fit-content">${[0,1,2].map(i=>`<div style="width:5px;height:5px;border-radius:50%;background:${T.inkMute};animation:edgeDot 1.2s ${i*0.15}s infinite ease-in-out"></div>`).join('')}</div>`;
+    msgArea.appendChild(typingEl);msgArea.scrollTop=msgArea.scrollHeight;
+    try{
+      const parsed=await parseTradeWithAI(text);msgArea.removeChild(typingEl);
+      const tradeId=`t_${Date.now()}`;
+      if(parsed.type==='query'){
+        const summary=await generateWeeklySummary(this.data.trades);const now=new Date();const wa=new Date();wa.setDate(wa.getDate()-7);summary.dateRange=`${wa.toLocaleDateString('en-US',{month:'short',day:'numeric'})}–${now.toLocaleDateString('en-US',{month:'short',day:'numeric'})}`;
+        const am={id:`a_${Date.now()}`,role:'ai',type:'summary',summary,time:nowTime()};this.addMessage(am);msgArea.appendChild(this.createMessageEl(am));
+        if(parsed.aiComment){const cm={id:`a_${Date.now()+1}`,role:'ai',type:'text',text:parsed.aiComment,time:nowTime()};this.addMessage(cm);msgArea.appendChild(this.createMessageEl(cm));}
+      }else if(parsed.type==='trade'&&parsed.ticker){
+        const pnl=(parsed.exit&&parsed.entry&&parsed.size)?(parsed.exit-parsed.entry)*parsed.size*(parsed.direction==='Short'?-1:1):null;
+        const pnlPct=(pnl!==null&&parsed.entry&&parsed.size)?(pnl/(parsed.entry*parsed.size))*100:null;
+        const rMultiple=(pnl!==null&&parsed.stop&&parsed.entry&&parsed.size)?pnl/(Math.abs(parsed.entry-parsed.stop)*parsed.size):null;
+        const pt={id:tradeId,date:todayISO(),ticker:parsed.ticker,direction:parsed.direction||'Long',entry:parsed.entry,exit:parsed.exit||null,size:parsed.size,stop:parsed.stop,target:parsed.target,pnl,pnlPct,r:rMultiple,setup:parsed.setup,emotion:parsed.emotion,thesis:parsed.thesis,status:parsed.exit?'Closed':'Open',confirmed:false};
+        window.__pendingTrades=window.__pendingTrades||{};window.__pendingTrades[tradeId]=pt;
+        const am={id:`a_${Date.now()}`,role:'ai',type:'parse',parsed,tradeId,time:nowTime()};this.addMessage(am);msgArea.appendChild(this.createMessageEl(am));
+        if(parsed.aiComment){const cm={id:`a_${Date.now()+1}`,role:'ai',type:'text',text:parsed.aiComment,time:nowTime()};this.addMessage(cm);msgArea.appendChild(this.createMessageEl(cm));}
+      }else{const cm={id:`a_${Date.now()}`,role:'ai',type:'text',text:parsed.aiComment||"Got it.",time:nowTime()};this.addMessage(cm);msgArea.appendChild(this.createMessageEl(cm));}
+    }catch(err){msgArea.removeChild(typingEl);const em={id:`a_${Date.now()}`,role:'ai',type:'text',text:"Hmm, had trouble parsing that. Try: 'Bought 50 AAPL at $182, stop $178, target $190'",time:nowTime()};this.addMessage(em);msgArea.appendChild(this.createMessageEl(em));}
+    msgArea.scrollTop=msgArea.scrollHeight;
   }
-
-  confirmTrade(tradeId) {
-    const trade = window.__pendingTrades?.[tradeId];
-    if (!trade) return;
-    trade.confirmed = true;
-    this.addTrade(trade);
-
-    // Update button area
-    const actionsEl = document.getElementById(`confirm-actions-${tradeId}`);
-    if (actionsEl) {
-      actionsEl.innerHTML = `<div style="font-family:${F.mono};font-size:10px;font-weight:700;color:${T.win};letter-spacing:1.5px;padding:4px 0">✓ LOGGED TO LEDGER</div>`;
-    }
-
-    // Show confirmation message
-    const msgArea = document.getElementById('msg-area');
-    if (msgArea) {
-      const confirmEl = document.createElement('div');
-      confirmEl.style.cssText = `align-self:flex-start;max-width:88%;animation:edgeFade 0.3s ease-out;`;
-      confirmEl.innerHTML = `
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;margin-left:2px">
-          <div style="width:16px;height:16px;border-radius:3px;background:${T.ink};color:${T.bg};font-family:${F.mono};font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center">E</div>
-        </div>
-        <div style="background:transparent;padding:6px 10px;font-family:${F.ui};font-size:14px;line-height:1.45;color:${T.inkSoft};font-style:italic;border-left:2px solid ${T.win}">
-          ${trade.ticker} trade saved. Check your Logbook.
-        </div>`;
-      msgArea.appendChild(confirmEl);
-      msgArea.scrollTop = msgArea.scrollHeight;
-
-      // Save confirmation message
-      const confMsg = { id: `a_${Date.now()}`, role: 'ai', type: 'text', text: `${trade.ticker} trade saved. Check your Logbook.`, time: nowTime() };
-      this.addMessage(confMsg);
-    }
+  confirmTrade(tradeId){
+    const trade=window.__pendingTrades?.[tradeId];if(!trade)return;trade.confirmed=true;this.addTrade(trade);
+    const ae=document.getElementById(`confirm-actions-${tradeId}`);if(ae)ae.innerHTML=`<div style="font-family:${F.mono};font-size:10px;font-weight:700;color:${T.win};letter-spacing:1.5px;padding:4px 0">✓ LOGGED TO LEDGER</div>`;
+    const ma=document.getElementById('msg-area');if(ma){const ce=document.createElement('div');ce.style.cssText=`align-self:flex-start;max-width:88%;animation:edgeFade 0.3s ease-out;`;ce.innerHTML=`<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;margin-left:2px"><div style="width:16px;height:16px;border-radius:3px;background:${T.ink};color:${T.bg};font-family:${F.mono};font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center">E</div></div><div style="background:transparent;padding:6px 10px;font-family:${F.ui};font-size:14px;line-height:1.45;color:${T.inkSoft};font-style:italic;border-left:2px solid ${T.win}">${trade.ticker} trade saved. Check your Logbook.</div>`;ma.appendChild(ce);ma.scrollTop=ma.scrollHeight;const confMsg={id:`a_${Date.now()}`,role:'ai',type:'text',text:`${trade.ticker} trade saved. Check your Logbook.`,time:nowTime()};this.addMessage(confMsg);}
   }
-
-  discardTrade(tradeId) {
-    const actionsEl = document.getElementById(`confirm-actions-${tradeId}`);
-    if (actionsEl) {
-      actionsEl.innerHTML = `<div style="font-family:${F.mono};font-size:10px;color:${T.inkMute};letter-spacing:1.5px;padding:4px 0">DISCARDED</div>`;
-    }
-    if (window.__pendingTrades) delete window.__pendingTrades[tradeId];
-  }
-
-  // ── LOGBOOK PAGE ─────────────────────────────────────────────
-  renderLogbook(container) {
-    container.style.cssText = 'height:100%;overflow-y:auto;';
-
-    const page = document.createElement('div');
-    page.style.cssText = `display:flex;flex-direction:column;min-height:100%;background:${T.bg};animation:edgeFade 0.3s ease-out;`;
-
-    // Header
-    const header = document.createElement('div');
-    header.style.cssText = `background:${T.bg};padding:calc(env(safe-area-inset-top) + 12px) 20px 0;flex-shrink:0;`;
-    header.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-        <div style="display:flex;align-items:center;gap:8px">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-            <path d="M3 19 L12 6 L21 19" stroke="${T.ink}" stroke-width="2" stroke-linecap="square" fill="none"/>
-            <circle cx="12" cy="6" r="1.8" fill="${T.primary}"/>
-            <path d="M7 19 L17 19" stroke="${T.ink}" stroke-width="2" stroke-linecap="square"/>
-          </svg>
-          <div style="font-family:${F.display};font-size:20px;color:${T.ink};letter-spacing:-0.3px"><em>Edge</em>Log</div>
-        </div>
-        <button onclick="window.__edgelog.exportCSV()" style="font-family:${F.mono};font-size:10px;font-weight:700;color:${T.primary};letter-spacing:1.5px;padding:6px 10px;border:1px solid ${T.primary}50;border-radius:4px;background:transparent">↓ CSV</button>
-      </div>
-      <div style="font-family:${F.display};font-size:36px;color:${T.ink};font-weight:400;letter-spacing:-0.5px;line-height:1;margin-bottom:14px"><em>The</em> Ledger</div>`;
-
+  discardTrade(tradeId){const ae=document.getElementById(`confirm-actions-${tradeId}`);if(ae)ae.innerHTML=`<div style="font-family:${F.mono};font-size:10px;color:${T.inkMute};letter-spacing:1.5px;padding:4px 0">DISCARDED</div>`;if(window.__pendingTrades)delete window.__pendingTrades[tradeId];}
+  renderLogbook(container){
+    container.style.cssText='height:100%;overflow-y:auto;';
+    const page=document.createElement('div');page.style.cssText=`display:flex;flex-direction:column;min-height:100%;background:${T.bg};animation:edgeFade 0.3s ease-out;`;
+    const header=document.createElement('div');header.style.cssText=`background:${T.bg};padding:calc(env(safe-area-inset-top) + 12px) 20px 0;flex-shrink:0;`;
+    header.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><div style="display:flex;align-items:center;gap:8px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M3 19 L12 6 L21 19" stroke="${T.ink}" stroke-width="2" stroke-linecap="square" fill="none"/><circle cx="12" cy="6" r="1.8" fill="${T.primary}"/><path d="M7 19 L17 19" stroke="${T.ink}" stroke-width="2" stroke-linecap="square"/></svg><div style="font-family:${F.display};font-size:20px;color:${T.ink};letter-spacing:-0.3px"><em>Edge</em>Log</div></div><button onclick="window.__edgelog.exportCSV()" style="font-family:${F.mono};font-size:10px;font-weight:700;color:${T.primary};letter-spacing:1.5px;padding:6px 10px;border:1px solid ${T.primary}50;border-radius:4px;background:transparent">↓ CSV</button></div><div style="font-family:${F.display};font-size:36px;color:${T.ink};font-weight:400;letter-spacing:-0.5px;line-height:1;margin-bottom:14px"><em>The</em> Ledger</div>`;
     page.appendChild(header);
-
-    // Stats
-    const trades = this.data.trades;
-    const closed = trades.filter(t => t.status === 'Closed');
-    const totalPnl = closed.reduce((s, t) => s + (t.pnl || 0), 0);
-    const wins = closed.filter(t => t.pnl > 0);
-    const winRate = closed.length ? Math.round(wins.length / closed.length * 100) : 0;
-
-    const stats = document.createElement('div');
-    stats.style.cssText = `display:flex;gap:16px;padding:12px 20px;border-top:1px solid ${T.line};border-bottom:1px solid ${T.line};background:${T.bg};`;
-    [
-      { k: 'Net P&L', v: fmtMoney(totalPnl, {sign:true}), color: totalPnl >= 0 ? T.win : T.loss },
-      { k: 'Trades', v: trades.length },
-      { k: 'Win Rate', v: `${winRate}%` },
-    ].forEach(s => {
-      const el = document.createElement('div');
-      el.style.cssText = 'flex:1;';
-      el.innerHTML = `<div style="font-family:${F.mono};font-size:9px;font-weight:600;color:${T.inkMute};letter-spacing:1.5px;text-transform:uppercase;margin-bottom:2px">${s.k}</div><div style="font-family:${F.mono};font-size:16px;font-weight:600;color:${s.color || T.ink};font-feature-settings:'tnum'">${s.v}</div>`;
-      stats.appendChild(el);
-    });
+    const trades=this.data.trades,closed=trades.filter(t=>t.status==='Closed'),totalPnl=closed.reduce((s,t)=>s+(t.pnl||0),0),wins=closed.filter(t=>t.pnl>0),winRate=closed.length?Math.round(wins.length/closed.length*100):0;
+    const stats=document.createElement('div');stats.style.cssText=`display:flex;gap:16px;padding:12px 20px;border-top:1px solid ${T.line};border-bottom:1px solid ${T.line};background:${T.bg};`;
+    [{k:'Net P&L',v:fmtMoney(totalPnl,{sign:true}),color:totalPnl>=0?T.win:T.loss},{k:'Trades',v:trades.length},{k:'Win Rate',v:`${winRate}%`}].forEach(s=>{const el=document.createElement('div');el.style.cssText='flex:1;';el.innerHTML=`<div style="font-family:${F.mono};font-size:9px;font-weight:600;color:${T.inkMute};letter-spacing:1.5px;text-transform:uppercase;margin-bottom:2px">${s.k}</div><div style="font-family:${F.mono};font-size:16px;font-weight:600;color:${s.color||T.ink}">${s.v}</div>`;stats.appendChild(el);});
     page.appendChild(stats);
-
-    // Filters
-    const filters = ['All', 'Open', 'Wins', 'Losses'];
-    const filterState = { current: 'All' };
-    const filterBar = document.createElement('div');
-    filterBar.style.cssText = `display:flex;gap:6px;padding:10px 16px;overflow-x:auto;border-bottom:1px solid ${T.line};background:${T.bg};flex-shrink:0;`;
-
-    const tradeList = document.createElement('div');
-    tradeList.style.cssText = 'flex:1;padding-bottom:20px;';
-
-    const renderFiltered = () => {
-      tradeList.innerHTML = '';
-      const f = filterState.current;
-      const filtered = trades.filter(t => {
-        if (f === 'All') return true;
-        if (f === 'Open') return t.status === 'Open';
-        if (f === 'Wins') return t.pnl > 0;
-        if (f === 'Losses') return t.pnl < 0;
-        return true;
-      });
-
-      if (filtered.length === 0) {
-        tradeList.innerHTML = `<div style="padding:40px;text-align:center;font-family:${F.ui};color:${T.inkMute}">No trades yet. Log your first trade in the Chat tab.</div>`;
-        return;
-      }
-
-      filtered.forEach((t, idx) => {
-        const row = this.createLogRow(t, idx === filtered.length - 1);
-        tradeList.appendChild(row);
-      });
-    };
-
-    filters.forEach(f => {
-      const btn = document.createElement('button');
-      const updateBtns = () => {
-        filterBar.querySelectorAll('button').forEach(b => {
-          const isActive = b.dataset.filter === filterState.current;
-          b.style.background = isActive ? T.primary : 'transparent';
-          b.style.color = isActive ? T.bg : T.inkSoft;
-          b.style.borderColor = isActive ? T.primary : T.line;
-        });
-      };
-      btn.dataset.filter = f;
-      btn.style.cssText = `font-family:${F.mono};font-size:10px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;padding:6px 10px;border-radius:4px;border:1px solid ${T.line};background:${f === 'All' ? T.primary : 'transparent'};color:${f === 'All' ? T.bg : T.inkSoft};white-space:nowrap;flex-shrink:0;`;
-      btn.textContent = f;
-      btn.onclick = () => { filterState.current = f; updateBtns(); renderFiltered(); };
-      filterBar.appendChild(btn);
-    });
-
-    page.appendChild(filterBar);
-    renderFiltered();
-    page.appendChild(tradeList);
-    container.appendChild(page);
+    const filterState={current:'All'};const filterBar=document.createElement('div');filterBar.style.cssText=`display:flex;gap:6px;padding:10px 16px;overflow-x:auto;border-bottom:1px solid ${T.line};background:${T.bg};flex-shrink:0;`;
+    const tradeList=document.createElement('div');tradeList.style.cssText='flex:1;padding-bottom:20px;';
+    const renderFiltered=()=>{tradeList.innerHTML='';const f=filterState.current;const filtered=trades.filter(t=>{if(f==='All')return true;if(f==='Open')return t.status==='Open';if(f==='Wins')return t.pnl>0;if(f==='Losses')return t.pnl<0;return true;});if(!filtered.length){tradeList.innerHTML=`<div style="padding:40px;text-align:center;font-family:${F.ui};color:${T.inkMute}">No trades yet. Log your first trade in the Chat tab.</div>`;return;}filtered.forEach(t=>tradeList.appendChild(this.createLogRow(t)));};
+    ['All','Open','Wins','Losses'].forEach(f=>{const btn=document.createElement('button');btn.dataset.filter=f;btn.style.cssText=`font-family:${F.mono};font-size:10px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;padding:6px 10px;border-radius:4px;border:1px solid ${f==='All'?T.primary:T.line};background:${f==='All'?T.primary:'transparent'};color:${f==='All'?T.bg:T.inkSoft};white-space:nowrap;flex-shrink:0;`;btn.textContent=f;btn.onclick=()=>{filterState.current=f;filterBar.querySelectorAll('button').forEach(b=>{const ia=b.dataset.filter===f;b.style.background=ia?T.primary:'transparent';b.style.color=ia?T.bg:T.inkSoft;b.style.borderColor=ia?T.primary:T.line;});renderFiltered();};filterBar.appendChild(btn);});
+    page.appendChild(filterBar);renderFiltered();page.appendChild(tradeList);container.appendChild(page);
   }
-
-  createLogRow(t) {
-    const isWin = t.pnl > 0;
-    const isLoss = t.pnl < 0;
-    const isOpen = t.status === 'Open';
-    const row = document.createElement('div');
-    row.style.cssText = `border-bottom:1px solid ${T.line};position:relative;background:${isWin ? T.win+'06' : isLoss ? T.loss+'06' : 'transparent'};`;
-
-    const edgeBar = document.createElement('div');
-    edgeBar.style.cssText = `position:absolute;left:0;top:0;bottom:0;width:2px;background:${isOpen ? T.gold : isWin ? T.win : isLoss ? T.loss : 'transparent'};`;
-    row.appendChild(edgeBar);
-
-    let expanded = false;
-    const mainRow = document.createElement('div');
-    mainRow.style.cssText = 'padding:12px 16px 12px 18px;display:flex;align-items:center;gap:10px;cursor:pointer;';
-    mainRow.innerHTML = `
-      <div style="width:42px;flex-shrink:0">
-        <div style="font-family:${F.mono};font-size:10px;color:${T.inkMute};letter-spacing:1px;text-transform:uppercase">${new Date(t.date+'T00:00:00').toLocaleDateString('en-US',{month:'short'})}</div>
-        <div style="font-family:${F.display};font-size:20px;color:${T.ink};line-height:1">${new Date(t.date+'T00:00:00').getDate()}</div>
-      </div>
-      <div style="flex:1;min-width:0">
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
-          <span style="font-family:${F.mono};font-size:14px;font-weight:700;color:${T.ink};letter-spacing:0.5px">${t.ticker}</span>
-          <span style="font-family:${F.mono};font-size:10px;font-weight:600;color:${t.direction === 'Long' ? T.win : t.direction === 'Add' ? T.gold : T.loss};padding:2px 6px;border:1px solid ${t.direction === 'Long' ? T.win : T.loss}40;border-radius:3px;background:${t.direction === 'Long' ? T.win : T.loss}0F">${t.direction === 'Long' ? '↑ Long' : t.direction === 'Add' ? '+ Add' : '↓ Short'}</span>
-          ${isOpen ? `<span style="font-family:${F.mono};font-size:9px;font-weight:600;color:${T.gold};padding:1px 5px;border:1px solid ${T.gold}60;border-radius:2px;letter-spacing:1px">OPEN</span>` : ''}
-        </div>
-        <div style="font-family:${F.mono};font-size:10px;color:${T.inkMute};font-feature-settings:'tnum'">${t.size ? t.size + ' × ' : ''}${fmtMoney(t.entry)}${t.exit ? ' → ' + fmtMoney(t.exit) : ''}</div>
-      </div>
-      <div style="text-align:right">
-        ${t.pnl !== null ? `
-          <div style="font-family:${F.mono};font-size:14px;font-weight:700;color:${isWin ? T.win : T.loss};font-feature-settings:'tnum'">${fmtMoney(t.pnl, {sign:true})}</div>
-          <div style="font-family:${F.mono};font-size:10px;color:${isWin ? T.win : T.loss};opacity:0.7">${fmtPct(t.pnlPct)}${t.r ? ' · ' + (t.r > 0 ? '+' : '') + t.r.toFixed(1) + 'R' : ''}</div>
-        ` : `<div style="font-family:${F.mono};font-size:12px;color:${T.inkMute};font-style:italic">running</div>`}
-      </div>
-      <svg width="8" height="12" viewBox="0 0 8 12" class="chevron" style="transition:transform 0.2s;flex-shrink:0"><path d="M1 1 L6 6 L1 11" stroke="${T.inkMute}" stroke-width="1.5" fill="none"/></svg>`;
-
-    const detail = document.createElement('div');
-    detail.style.cssText = `padding:0 16px 14px 60px;display:none;flex-direction:column;gap:8px;`;
-    if (t.thesis) {
-      detail.innerHTML += `<div style="font-family:${F.ui};font-size:13px;color:${T.inkSoft};line-height:1.5;padding:10px 12px;background:${T.bg};border-radius:8px;border-left:2px solid ${T.primary}">"${t.thesis}"</div>`;
-    }
-    const tags = [];
-    if (t.setup) tags.push({ label: t.setup, tone: null });
-    if (t.emotion) tags.push({ label: t.emotion, tone: ['FOMO','Hope','Revenge'].includes(t.emotion) ? 'loss' : 'win' });
-    if (t.stop) tags.push({ label: `Stop ${fmtMoney(t.stop)}`, tone: null });
-    if (t.target) tags.push({ label: `Tgt ${fmtMoney(t.target)}`, tone: null });
-    if (tags.length) {
-      const tagRow = document.createElement('div');
-      tagRow.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;';
-      tags.forEach(tag => {
-        const c = tag.tone === 'win' ? T.win : tag.tone === 'loss' ? T.loss : T.inkSoft;
-        tagRow.innerHTML += `<span style="font-family:${F.mono};font-size:10px;font-weight:600;color:${c};padding:3px 7px;border:1px solid ${c}40;border-radius:3px;background:${c}08;letter-spacing:0.5px">${tag.label}</span>`;
-      });
-      detail.appendChild(tagRow);
-    }
-
-    mainRow.onclick = () => {
-      expanded = !expanded;
-      detail.style.display = expanded ? 'flex' : 'none';
-      const chevron = mainRow.querySelector('.chevron');
-      if (chevron) chevron.style.transform = expanded ? 'rotate(90deg)' : 'none';
-    };
-
-    row.appendChild(mainRow);
-    row.appendChild(detail);
-    return row;
+  createLogRow(t){
+    const isWin=t.pnl>0,isLoss=t.pnl<0,isOpen=t.status==='Open';
+    const row=document.createElement('div');row.style.cssText=`border-bottom:1px solid ${T.line};position:relative;background:${isWin?T.win+'06':isLoss?T.loss+'06':'transparent'};`;
+    const eb=document.createElement('div');eb.style.cssText=`position:absolute;left:0;top:0;bottom:0;width:2px;background:${isOpen?T.gold:isWin?T.win:isLoss?T.loss:'transparent'};`;row.appendChild(eb);
+    let expanded=false;
+    const mr=document.createElement('div');mr.style.cssText='padding:12px 16px 12px 18px;display:flex;align-items:center;gap:10px;cursor:pointer;';
+    const dc=t.direction==='Long'?T.win:t.direction==='Add'?T.gold:T.loss;
+    mr.innerHTML=`<div style="width:42px;flex-shrink:0"><div style="font-family:${F.mono};font-size:10px;color:${T.inkMute};letter-spacing:1px;text-transform:uppercase">${new Date(t.date+'T00:00:00').toLocaleDateString('en-US',{month:'short'})}</div><div style="font-family:${F.display};font-size:20px;color:${T.ink};line-height:1">${new Date(t.date+'T00:00:00').getDate()}</div></div><div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:6px;margin-bottom:2px"><span style="font-family:${F.mono};font-size:14px;font-weight:700;color:${T.ink}">${t.ticker}</span><span style="font-family:${F.mono};font-size:10px;font-weight:600;color:${dc};padding:2px 6px;border:1px solid ${dc}40;border-radius:3px;background:${dc}0F">${t.direction==='Long'?'↑ Long':t.direction==='Add'?'+ Add':'↓ Short'}</span>${isOpen?`<span style="font-family:${F.mono};font-size:9px;font-weight:600;color:${T.gold};padding:1px 5px;border:1px solid ${T.gold}60;border-radius:2px">OPEN</span>`:''}</div><div style="font-family:${F.mono};font-size:10px;color:${T.inkMute}">${t.size?t.size+' × ':''}${fmtMoney(t.entry)}${t.exit?' → '+fmtMoney(t.exit):''}</div></div><div style="text-align:right">${t.pnl!==null?`<div style="font-family:${F.mono};font-size:14px;font-weight:700;color:${isWin?T.win:T.loss}">${fmtMoney(t.pnl,{sign:true})}</div><div style="font-family:${F.mono};font-size:10px;color:${isWin?T.win:T.loss};opacity:0.7">${fmtPct(t.pnlPct)}${t.r?' · '+(t.r>0?'+':'')+t.r.toFixed(1)+'R':''}</div>`:`<div style="font-family:${F.mono};font-size:12px;color:${T.inkMute};font-style:italic">running</div>`}</div><svg width="8" height="12" viewBox="0 0 8 12" class="chevron" style="transition:transform 0.2s;flex-shrink:0"><path d="M1 1 L6 6 L1 11" stroke="${T.inkMute}" stroke-width="1.5" fill="none"/></svg>`;
+    const detail=document.createElement('div');detail.style.cssText='padding:0 16px 14px 60px;display:none;flex-direction:column;gap:8px;';
+    if(t.thesis)detail.innerHTML+=`<div style="font-family:${F.ui};font-size:13px;color:${T.inkSoft};line-height:1.5;padding:10px 12px;background:${T.bg};border-radius:8px;border-left:2px solid ${T.primary}">"${t.thesis}"</div>`;
+    const tags=[];if(t.setup)tags.push({label:t.setup,tone:null});if(t.emotion)tags.push({label:t.emotion,tone:['FOMO','Hope','Revenge'].includes(t.emotion)?'loss':'win'});if(t.stop)tags.push({label:`Stop ${fmtMoney(t.stop)}`,tone:null});if(t.target)tags.push({label:`Tgt ${fmtMoney(t.target)}`,tone:null});
+    if(tags.length){const tr=document.createElement('div');tr.style.cssText='display:flex;gap:8px;flex-wrap:wrap;';tags.forEach(tag=>{const c=tag.tone==='win'?T.win:tag.tone==='loss'?T.loss:T.inkSoft;tr.innerHTML+=`<span style="font-family:${F.mono};font-size:10px;font-weight:600;color:${c};padding:3px 7px;border:1px solid ${c}40;border-radius:3px;background:${c}08">${tag.label}</span>`;});detail.appendChild(tr);}
+    mr.onclick=()=>{expanded=!expanded;detail.style.display=expanded?'flex':'none';const ch=mr.querySelector('.chevron');if(ch)ch.style.transform=expanded?'rotate(90deg)':'none';};
+    row.appendChild(mr);row.appendChild(detail);return row;
   }
-
-  exportCSV() {
-    const headers = ['Date','Ticker','Direction','Entry','Exit','Size','P&L','P&L%','R','Setup','Emotion','Status','Thesis'];
-    const rows = this.data.trades.map(t => [
-      t.date, t.ticker, t.direction,
-      t.entry, t.exit || '', t.size,
-      t.pnl !== null ? t.pnl : '', t.pnlPct !== null ? t.pnlPct : '',
-      t.r !== null ? t.r : '', t.setup || '', t.emotion || '',
-      t.status, t.thesis || ''
-    ]);
-    const csv = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
-    const a = document.createElement('a');
-    a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
-    a.download = `edgelog_${todayISO()}.csv`;
-    a.click();
+  exportCSV(){
+    const h=['Date','Ticker','Direction','Entry','Exit','Size','P&L','P&L%','R','Setup','Emotion','Status','Thesis'];
+    const rows=this.data.trades.map(t=>[t.date,t.ticker,t.direction,t.entry,t.exit||'',t.size,t.pnl!==null?t.pnl:'',t.pnlPct!==null?t.pnlPct:'',t.r!==null?t.r:'',t.setup||'',t.emotion||'',t.status,t.thesis||'']);
+    const csv=[h,...rows].map(r=>r.map(v=>`"${v}"`).join(',')).join('\n');
+    const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);a.download=`edgelog_${todayISO()}.csv`;a.click();
   }
-
-  // ── DASHBOARD PAGE ───────────────────────────────────────────
-  renderDashboard(container) {
-    container.style.cssText = 'height:100%;overflow-y:auto;';
-
-    const page = document.createElement('div');
-    page.style.cssText = `min-height:100%;background:${T.bg};padding:calc(env(safe-area-inset-top) + 12px) 16px 100px;animation:edgeFade 0.3s ease-out;`;
-
-    const stats = this.computeStats();
-    const trades = this.data.trades;
-    const closed = trades.filter(t => t.status === 'Closed' && t.pnl !== null);
-
-    // Header
-    page.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
-        <div style="display:flex;align-items:center;gap:8px">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-            <path d="M3 19 L12 6 L21 19" stroke="${T.ink}" stroke-width="2" stroke-linecap="square" fill="none"/>
-            <circle cx="12" cy="6" r="1.8" fill="${T.primary}"/>
-            <path d="M7 19 L17 19" stroke="${T.ink}" stroke-width="2" stroke-linecap="square"/>
-          </svg>
-          <div style="font-family:${F.display};font-size:20px;color:${T.ink};letter-spacing:-0.3px"><em>Edge</em>Log</div>
-        </div>
-        <span style="font-family:${F.mono};font-size:10px;color:${T.inkMute};letter-spacing:1.5px">YOUR EDGE</span>
-      </div>`;
-
-    // Hero P&L
-    const heroEl = document.createElement('div');
-    heroEl.style.cssText = 'padding:4px 4px 20px;';
-    heroEl.innerHTML = `
-      <div style="font-family:${F.mono};font-size:9px;font-weight:600;color:${T.inkMute};letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">All-Time P&L</div>
-      <div style="font-family:${F.display};font-size:52px;font-weight:400;color:${stats.totalPnl >= 0 ? T.win : T.loss};line-height:1;font-feature-settings:'tnum';letter-spacing:-1px;white-space:nowrap">${fmtMoney(stats.totalPnl, {sign:true})}</div>`;
-
-    // Equity curve
-    if (closed.length > 1) {
-      const equityCanvas = this.buildEquityCurve(closed);
-      heroEl.appendChild(equityCanvas);
-    }
+  renderDashboard(container){
+    container.style.cssText='height:100%;overflow-y:auto;';
+    const page=document.createElement('div');page.style.cssText=`min-height:100%;background:${T.bg};padding:calc(env(safe-area-inset-top) + 12px) 16px 100px;animation:edgeFade 0.3s ease-out;`;
+    const stats=this.computeStats(),trades=this.data.trades,closed=trades.filter(t=>t.status==='Closed'&&t.pnl!==null);
+    page.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px"><div style="display:flex;align-items:center;gap:8px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M3 19 L12 6 L21 19" stroke="${T.ink}" stroke-width="2" stroke-linecap="square" fill="none"/><circle cx="12" cy="6" r="1.8" fill="${T.primary}"/><path d="M7 19 L17 19" stroke="${T.ink}" stroke-width="2" stroke-linecap="square"/></svg><div style="font-family:${F.display};font-size:20px;color:${T.ink};letter-spacing:-0.3px"><em>Edge</em>Log</div></div><span style="font-family:${F.mono};font-size:10px;color:${T.inkMute};letter-spacing:1.5px">YOUR EDGE</span></div>`;
+    const heroEl=document.createElement('div');heroEl.style.cssText='padding:4px 4px 20px;';
+    heroEl.innerHTML=`<div style="font-family:${F.mono};font-size:9px;font-weight:600;color:${T.inkMute};letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">All-Time P&L</div><div style="font-family:${F.display};font-size:52px;font-weight:400;color:${stats.totalPnl>=0?T.win:T.loss};line-height:1;letter-spacing:-1px;white-space:nowrap">${fmtMoney(stats.totalPnl,{sign:true})}</div>`;
+    if(closed.length>1)heroEl.appendChild(this.buildEquityCurve(closed));
     page.appendChild(heroEl);
-
-    // Row 1: Win rate + Streak
-    const row1 = document.createElement('div');
-    row1.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;';
-
-    const winRate = closed.length ? Math.round(closed.filter(t => t.pnl > 0).length / closed.length * 100) : 0;
-    row1.appendChild(this.tile('Win Rate', `
-      <div style="display:flex;align-items:center;gap:12px">
-        ${this.circularGauge(winRate)}
-        <div>
-          <div style="font-family:${F.mono};font-size:10px;color:${T.inkMute};letter-spacing:1px">W / L</div>
-          <div style="font-family:${F.display};font-size:20px;color:${T.ink};line-height:1.1">${stats.wlRatio}</div>
-          <div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1px;margin-top:4px">AVG R</div>
-          <div style="font-family:${F.display};font-size:18px;color:${T.ink};line-height:1">${stats.avgR}</div>
-        </div>
-      </div>`));
-
-    row1.appendChild(this.tile('Streak', `
-      <div style="display:flex;align-items:baseline;gap:6px">
-        <div style="font-family:${F.display};font-size:44px;color:${T.ink};line-height:0.9;font-feature-settings:'tnum'">${stats.streak}</div>
-        <div style="font-size:22px">🔥</div>
-      </div>
-      <div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.5px;margin-top:2px">WINS IN A ROW</div>
-      <div style="margin-top:12px;padding-top:10px;border-top:1px dashed ${T.line};display:flex;justify-content:space-between;align-items:baseline">
-        <span style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.5px">BEST EVER</span>
-        <span style="font-family:${F.mono};font-size:14px;font-weight:700;color:${T.gold};font-feature-settings:'tnum'">${stats.bestStreak}</span>
-      </div>`));
-
+    const winRate=closed.length?Math.round(closed.filter(t=>t.pnl>0).length/closed.length*100):0;
+    const row1=document.createElement('div');row1.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;';
+    row1.appendChild(this.tile('Win Rate',`<div style="display:flex;align-items:center;gap:12px">${this.circularGauge(winRate)}<div><div style="font-family:${F.mono};font-size:10px;color:${T.inkMute};letter-spacing:1px">W / L</div><div style="font-family:${F.display};font-size:20px;color:${T.ink};line-height:1.1">${stats.wlRatio}</div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1px;margin-top:4px">AVG R</div><div style="font-family:${F.display};font-size:18px;color:${T.ink};line-height:1">${stats.avgR}</div></div></div>`));
+    row1.appendChild(this.tile('Streak',`<div style="display:flex;align-items:baseline;gap:6px"><div style="font-family:${F.display};font-size:44px;color:${T.ink};line-height:0.9">${stats.streak}</div><div style="font-size:22px">🔥</div></div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.5px;margin-top:2px">WINS IN A ROW</div><div style="margin-top:12px;padding-top:10px;border-top:1px dashed ${T.line};display:flex;justify-content:space-between;align-items:baseline"><span style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.5px">BEST EVER</span><span style="font-family:${F.mono};font-size:14px;font-weight:700;color:${T.gold}">${stats.bestStreak}</span></div>`));
     page.appendChild(row1);
-
-    // Row 2: Best / Worst
-    const best = closed.reduce((b, t) => (b === null || t.pnl > b.pnl) ? t : b, null);
-    const worst = closed.reduce((w, t) => (w === null || t.pnl < w.pnl) ? t : w, null);
-    const row2 = document.createElement('div');
-    row2.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;';
-    row2.appendChild(this.tile('Best Trade', best ? `
-      <div style="font-family:${F.mono};font-size:11px;font-weight:700;color:${T.ink};letter-spacing:1px">${best.ticker}</div>
-      <div style="font-family:${F.display};font-size:24px;color:${T.win};line-height:1.1;margin-top:2px;font-feature-settings:'tnum'">${fmtMoney(best.pnl, {sign:true})}</div>
-      <div style="font-family:${F.mono};font-size:10px;color:${T.inkMute};letter-spacing:0.5px;margin-top:4px">${fmtDate(best.date)} · ${fmtPct(best.pnlPct)}</div>
-    ` : `<div style="font-family:${F.mono};font-size:11px;color:${T.inkMute}">No closed trades yet</div>`, 'win'));
-    row2.appendChild(this.tile('Worst Trade', worst ? `
-      <div style="font-family:${F.mono};font-size:11px;font-weight:700;color:${T.ink};letter-spacing:1px">${worst.ticker}</div>
-      <div style="font-family:${F.display};font-size:24px;color:${T.loss};line-height:1.1;margin-top:2px;font-feature-settings:'tnum'">${fmtMoney(worst.pnl, {sign:true})}</div>
-      <div style="font-family:${F.mono};font-size:10px;color:${T.inkMute};letter-spacing:0.5px;margin-top:4px">${fmtDate(worst.date)} · ${fmtPct(worst.pnlPct)}</div>
-    ` : `<div style="font-family:${F.mono};font-size:11px;color:${T.inkMute}">No closed trades yet</div>`, 'loss'));
+    const best=closed.reduce((b,t)=>(b===null||t.pnl>b.pnl)?t:b,null),worst=closed.reduce((w,t)=>(w===null||t.pnl<w.pnl)?t:w,null);
+    const row2=document.createElement('div');row2.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;';
+    row2.appendChild(this.tile('Best Trade',best?`<div style="font-family:${F.mono};font-size:11px;font-weight:700;color:${T.ink}">${best.ticker}</div><div style="font-family:${F.display};font-size:24px;color:${T.win};line-height:1.1;margin-top:2px">${fmtMoney(best.pnl,{sign:true})}</div><div style="font-family:${F.mono};font-size:10px;color:${T.inkMute};margin-top:4px">${fmtDate(best.date)} · ${fmtPct(best.pnlPct)}</div>`:`<div style="font-family:${F.mono};font-size:11px;color:${T.inkMute}">No closed trades yet</div>`,'win'));
+    row2.appendChild(this.tile('Worst Trade',worst?`<div style="font-family:${F.mono};font-size:11px;font-weight:700;color:${T.ink}">${worst.ticker}</div><div style="font-family:${F.display};font-size:24px;color:${T.loss};line-height:1.1;margin-top:2px">${fmtMoney(worst.pnl,{sign:true})}</div><div style="font-family:${F.mono};font-size:10px;color:${T.inkMute};margin-top:4px">${fmtDate(worst.date)} · ${fmtPct(worst.pnlPct)}</div>`:`<div style="font-family:${F.mono};font-size:11px;color:${T.inkMute}">No closed trades yet</div>`,'loss'));
     page.appendChild(row2);
-
-    // Most traded
-    const tickerCounts = {};
-    trades.forEach(t => { tickerCounts[t.ticker] = (tickerCounts[t.ticker] || 0) + 1; });
-    const topTickers = Object.entries(tickerCounts).sort((a,b) => b[1]-a[1]).slice(0,5);
-    if (topTickers.length > 0) {
-      const maxCount = topTickers[0][1];
-      page.appendChild(this.tile('Most Traded', topTickers.map(([ticker, count]) => `
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
-          <span style="width:42px;font-family:${F.mono};font-size:11px;font-weight:700;color:${T.ink};letter-spacing:0.5px">${ticker}</span>
-          <div style="flex:1;height:8px;background:${T.bgDeep};border-radius:1px;overflow:hidden">
-            <div style="width:${(count/maxCount)*100}%;height:100%;background:${T.primary};transition:width 0.8s"></div>
-          </div>
-          <span style="width:18px;text-align:right;font-family:${F.mono};font-size:10px;color:${T.inkMute}">${count}</span>
-        </div>`).join(''), null, 'margin-bottom:10px'));
-    }
-
-    // Emotion heatmap
-    const emotions = {};
-    closed.forEach(t => {
-      if (!t.emotion) return;
-      if (!emotions[t.emotion]) emotions[t.emotion] = { wins: 0, losses: 0 };
-      if (t.pnl > 0) emotions[t.emotion].wins++;
-      else emotions[t.emotion].losses++;
-    });
-    const emotionEntries = Object.entries(emotions).sort((a,b) => (b[1].wins+b[1].losses) - (a[1].wins+a[1].losses));
-    if (emotionEntries.length > 0) {
-      page.appendChild(this.tile('Emotion Heatmap', emotionEntries.map(([label, e]) => {
-        const total = e.wins + e.losses;
-        const winPct = total ? (e.wins / total) * 100 : 0;
-        return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-          <span style="width:64px;font-family:${F.mono};font-size:10px;font-weight:600;color:${T.inkSoft};letter-spacing:0.5px">${label}</span>
-          <div style="flex:1;height:14px;background:${T.bgDeep};border-radius:2px;display:flex;overflow:hidden">
-            <div style="width:${winPct}%;background:${T.win}"></div>
-            <div style="width:${100-winPct}%;background:${T.loss}"></div>
-          </div>
-          <span style="font-family:${F.mono};font-size:10px;color:${T.ink};width:36px;text-align:right">${e.wins}/${total}</span>
-        </div>`;
-      }).join(''), null, 'margin-bottom:10px'));
-    }
-
-    // Weekday P&L
-    const byDay = { Mon:0, Tue:0, Wed:0, Thu:0, Fri:0 };
-    const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-    closed.forEach(t => {
-      const day = dayNames[new Date(t.date+'T00:00:00').getDay()];
-      if (byDay.hasOwnProperty(day)) byDay[day] += t.pnl;
-    });
-    const maxDayAbs = Math.max(...Object.values(byDay).map(Math.abs), 1);
-    page.appendChild(this.tile('Best Day of Week', `
-      <div style="display:flex;gap:6px;align-items:flex-end;height:80px;padding-top:10px">
-        ${Object.entries(byDay).map(([day, pnl]) => {
-          const h = Math.max(4, (Math.abs(pnl) / maxDayAbs) * 60);
-          const win = pnl >= 0;
-          return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;justify-content:flex-end;height:100%">
-            <span style="font-family:${F.mono};font-size:7px;font-weight:600;color:${win ? T.win : T.loss};white-space:nowrap">${pnl !== 0 ? (pnl > 0 ? '+' : '-') + '$' + Math.abs(Math.round(pnl)) : '—'}</span>
-            <div style="width:100%;height:${h}px;border-radius:2px;background:${win && pnl !== 0 ? T.win : !win ? T.loss : T.bgDeep}"></div>
-            <span style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1px">${day.toUpperCase()}</span>
-          </div>`;
-        }).join('')}
-      </div>`, null, 'margin-bottom:10px'));
-
-    // P&L Calendar
-    page.appendChild(this.tile('P&L Calendar', this.buildCalendar(closed), null, 'margin-bottom:10px'));
-
-    // Footer
-    const footer = document.createElement('div');
-    footer.style.cssText = `margin-top:20px;padding-top:16px;border-top:1px solid ${T.line};display:flex;justify-content:space-between;align-items:baseline;`;
-    footer.innerHTML = `
-      <span style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:2px">EDGELOG · v1.0</span>
-      <span style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:2px">${trades.length} TRADES</span>`;
-    page.appendChild(footer);
-    container.appendChild(page);
+    const tc={};trades.forEach(t=>{tc[t.ticker]=(tc[t.ticker]||0)+1;});const top=Object.entries(tc).sort((a,b)=>b[1]-a[1]).slice(0,5);
+    if(top.length){const mx=top[0][1];page.appendChild(this.tile('Most Traded',top.map(([tk,cnt])=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px"><span style="width:42px;font-family:${F.mono};font-size:11px;font-weight:700;color:${T.ink}">${tk}</span><div style="flex:1;height:8px;background:${T.bgDeep};border-radius:1px;overflow:hidden"><div style="width:${(cnt/mx)*100}%;height:100%;background:${T.primary}"></div></div><span style="width:18px;text-align:right;font-family:${F.mono};font-size:10px;color:${T.inkMute}">${cnt}</span></div>`).join(''),null,'margin-bottom:10px'));}
+    const em={};closed.forEach(t=>{if(!t.emotion)return;if(!em[t.emotion])em[t.emotion]={wins:0,losses:0};if(t.pnl>0)em[t.emotion].wins++;else em[t.emotion].losses++;});
+    const ee=Object.entries(em).sort((a,b)=>(b[1].wins+b[1].losses)-(a[1].wins+a[1].losses));
+    if(ee.length)page.appendChild(this.tile('Emotion Heatmap',ee.map(([label,e])=>{const tot=e.wins+e.losses,wp=tot?(e.wins/tot)*100:0;return`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="width:64px;font-family:${F.mono};font-size:10px;font-weight:600;color:${T.inkSoft}">${label}</span><div style="flex:1;height:14px;background:${T.bgDeep};border-radius:2px;display:flex;overflow:hidden"><div style="width:${wp}%;background:${T.win}"></div><div style="width:${100-wp}%;background:${T.loss}"></div></div><span style="font-family:${F.mono};font-size:10px;color:${T.ink};width:36px;text-align:right">${e.wins}/${tot}</span></div>`;}).join(''),null,'margin-bottom:10px'));
+    const bd={Mon:0,Tue:0,Wed:0,Thu:0,Fri:0},dn=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];closed.forEach(t=>{const d=dn[new Date(t.date+'T00:00:00').getDay()];if(bd.hasOwnProperty(d))bd[d]+=t.pnl;});const mda=Math.max(...Object.values(bd).map(Math.abs),1);
+    page.appendChild(this.tile('Best Day of Week',`<div style="display:flex;gap:6px;align-items:flex-end;height:80px;padding-top:10px">${Object.entries(bd).map(([day,pnl])=>{const h=Math.max(4,(Math.abs(pnl)/mda)*60),win=pnl>=0;return`<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;justify-content:flex-end;height:100%"><span style="font-family:${F.mono};font-size:7px;font-weight:600;color:${win?T.win:T.loss};white-space:nowrap">${pnl!==0?(pnl>0?'+':'-')+'$'+Math.abs(Math.round(pnl)):'—'}</span><div style="width:100%;height:${h}px;border-radius:2px;background:${win&&pnl!==0?T.win:!win?T.loss:T.bgDeep}"></div><span style="font-family:${F.mono};font-size:9px;color:${T.inkMute}">${day.toUpperCase()}</span></div>`;}).join('')}</div>`,null,'margin-bottom:10px'));
+    page.appendChild(this.tile('P&L Calendar',this.buildCalendar(closed),null,'margin-bottom:10px'));
+    const footer=document.createElement('div');footer.style.cssText=`margin-top:20px;padding-top:16px;border-top:1px solid ${T.line};display:flex;justify-content:space-between;`;footer.innerHTML=`<span style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:2px">EDGELOG · v1.0</span><span style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:2px">${trades.length} TRADES</span>`;page.appendChild(footer);container.appendChild(page);
   }
-
-  tile(label, content, glow, extraStyle = '') {
-    const el = document.createElement('div');
-    let shadow = 'none';
-    if (glow === 'win') shadow = `inset 0 0 0 1px ${T.win}30,0 6px 18px ${T.winGlow}`;
-    if (glow === 'loss') shadow = `inset 0 0 0 1px ${T.loss}30,0 6px 18px ${T.lossGlow}`;
-    el.style.cssText = `background:${T.surface};border-radius:12px;border:1px solid ${T.line};padding:14px;box-shadow:${shadow};${extraStyle}`;
-    el.innerHTML = `
-      <div style="font-family:${F.mono};font-size:9px;font-weight:700;color:${T.inkMute};letter-spacing:2px;text-transform:uppercase;margin-bottom:10px">${label}</div>
-      ${content}`;
-    return el;
+  tile(label,content,glow,extraStyle=''){
+    const el=document.createElement('div');let shadow='none';if(glow==='win')shadow=`inset 0 0 0 1px ${T.win}30,0 6px 18px ${T.winGlow}`;if(glow==='loss')shadow=`inset 0 0 0 1px ${T.loss}30,0 6px 18px ${T.lossGlow}`;
+    el.style.cssText=`background:${T.surface};border-radius:12px;border:1px solid ${T.line};padding:14px;box-shadow:${shadow};${extraStyle}`;el.innerHTML=`<div style="font-family:${F.mono};font-size:9px;font-weight:700;color:${T.inkMute};letter-spacing:2px;text-transform:uppercase;margin-bottom:10px">${label}</div>${content}`;return el;
   }
-
-  circularGauge(value) {
-    const size = 86, stroke = 6, r = (size - stroke) / 2;
-    const c = 2 * Math.PI * r;
-    const offset = c * (1 - value / 100);
-    return `<div style="position:relative;width:${size}px;height:${size}px;flex-shrink:0">
-      <svg width="${size}" height="${size}" style="transform:rotate(-90deg)">
-        <circle cx="${size/2}" cy="${size/2}" r="${r}" stroke="${T.line}" stroke-width="${stroke}" fill="none"/>
-        <circle cx="${size/2}" cy="${size/2}" r="${r}" stroke="${T.win}" stroke-width="${stroke}" fill="none"
-          stroke-dasharray="${c}" stroke-dashoffset="${offset}" stroke-linecap="round"/>
-      </svg>
-      <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column">
-        <div style="font-family:${F.display};font-size:24px;color:${T.ink};line-height:1">${value}</div>
-        <div style="font-family:${F.mono};font-size:8px;color:${T.inkMute};letter-spacing:1.5px;margin-top:2px">PCT</div>
-      </div>
-    </div>`;
+  circularGauge(value){
+    const size=86,stroke=6,r=(size-stroke)/2,c=2*Math.PI*r,offset=c*(1-value/100);
+    return`<div style="position:relative;width:${size}px;height:${size}px;flex-shrink:0"><svg width="${size}" height="${size}" style="transform:rotate(-90deg)"><circle cx="${size/2}" cy="${size/2}" r="${r}" stroke="${T.line}" stroke-width="${stroke}" fill="none"/><circle cx="${size/2}" cy="${size/2}" r="${r}" stroke="${T.win}" stroke-width="${stroke}" fill="none" stroke-dasharray="${c}" stroke-dashoffset="${offset}" stroke-linecap="round"/></svg><div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column"><div style="font-family:${F.display};font-size:24px;color:${T.ink};line-height:1">${value}</div><div style="font-family:${F.mono};font-size:8px;color:${T.inkMute};letter-spacing:1.5px;margin-top:2px">PCT</div></div></div>`;
   }
-
-  buildEquityCurve(closed) {
-    const sorted = [...closed].sort((a,b) => a.date.localeCompare(b.date));
-    let cum = 0;
-    const pts = sorted.map(t => { cum += t.pnl; return cum; });
-
-    const W = window.innerWidth - 52, H = 110;
-    const min = Math.min(0, ...pts), max = Math.max(...pts, 1);
-    const range = max - min || 1;
-
-    const canvas = document.createElement('canvas');
-    canvas.width = W * 2; canvas.height = H * 2;
-    canvas.style.cssText = `width:${W}px;height:${H}px;display:block;margin-top:12px;margin-left:-4px;`;
-    const ctx = canvas.getContext('2d');
-    ctx.scale(2, 2);
-
-    const coords = pts.map((v, i) => ({
-      x: 8 + (i / (pts.length - 1)) * (W - 16),
-      y: 8 + (H - 26) - ((v - min) / range) * (H - 26),
-    }));
-
-    const endColor = pts[pts.length-1] >= 0 ? T.win : T.loss;
-
-    // Gradient fill
-    const grad = ctx.createLinearGradient(0, 0, 0, H);
-    grad.addColorStop(0, endColor + '40');
-    grad.addColorStop(1, endColor + '00');
-    ctx.beginPath();
-    coords.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
-    ctx.lineTo(coords[coords.length-1].x, H-18);
-    ctx.lineTo(coords[0].x, H-18);
-    ctx.closePath();
-    ctx.fillStyle = grad;
-    ctx.fill();
-
-    // Line
-    ctx.beginPath();
-    coords.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
-    ctx.strokeStyle = endColor;
-    ctx.lineWidth = 1.8;
-    ctx.lineJoin = 'round';
-    ctx.stroke();
-
-    // End dot
-    const last = coords[coords.length-1];
-    ctx.beginPath();
-    ctx.arc(last.x, last.y, 3, 0, Math.PI*2);
-    ctx.fillStyle = endColor;
-    ctx.fill();
-
+  buildEquityCurve(closed){
+    const sorted=[...closed].sort((a,b)=>a.date.localeCompare(b.date));let cum=0;const pts=sorted.map(t=>{cum+=t.pnl;return cum;});
+    const W=Math.min(window.innerWidth,430)-52,H=110,min=Math.min(0,...pts),max=Math.max(...pts,1),range=max-min||1;
+    const canvas=document.createElement('canvas');canvas.width=W*2;canvas.height=H*2;canvas.style.cssText=`width:${W}px;height:${H}px;display:block;margin-top:12px;margin-left:-4px;`;
+    const ctx=canvas.getContext('2d');ctx.scale(2,2);
+    const coords=pts.map((v,i)=>({x:8+(i/(pts.length-1))*(W-16),y:8+(H-26)-((v-min)/range)*(H-26)}));
+    const ec=pts[pts.length-1]>=0?T.win:T.loss;
+    const grad=ctx.createLinearGradient(0,0,0,H);grad.addColorStop(0,ec+'40');grad.addColorStop(1,ec+'00');
+    ctx.beginPath();coords.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y));ctx.lineTo(coords[coords.length-1].x,H-18);ctx.lineTo(coords[0].x,H-18);ctx.closePath();ctx.fillStyle=grad;ctx.fill();
+    ctx.beginPath();coords.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y));ctx.strokeStyle=ec;ctx.lineWidth=1.8;ctx.lineJoin='round';ctx.stroke();
+    const last=coords[coords.length-1];ctx.beginPath();ctx.arc(last.x,last.y,3,0,Math.PI*2);ctx.fillStyle=ec;ctx.fill();
     return canvas;
   }
-
-  buildCalendar(closed) {
-    const pnlByDay = {};
-    closed.forEach(t => { pnlByDay[t.date] = (pnlByDay[t.date] || 0) + t.pnl; });
-    const maxAbs = Math.max(...Object.values(pnlByDay).map(Math.abs), 1);
-
-    const today = new Date();
-    const weeks = 10;
-    const cells = [];
-    const endDate = new Date(today);
-    endDate.setDate(today.getDate() + (6 - today.getDay()));
-    const startDate = new Date(endDate);
-    startDate.setDate(endDate.getDate() - (weeks * 7 - 1));
-
-    for (let d = 0; d < weeks * 7; d++) {
-      const date = new Date(startDate);
-      date.setDate(startDate.getDate() + d);
-      const key = date.toISOString().slice(0,10);
-      const pnl = pnlByDay[key];
-      const isFuture = date > today;
-      cells.push({ key, pnl: isFuture ? null : (pnl ?? 0), isFuture });
-    }
-
-    const cols = [];
-    for (let w = 0; w < weeks; w++) cols.push(cells.slice(w*7, w*7+7));
-
-    const hexAlpha = (hex, a) => {
-      const h = hex.replace('#','');
-      const r = parseInt(h.substring(0,2),16), g = parseInt(h.substring(2,4),16), b = parseInt(h.substring(4,6),16);
-      return `rgba(${r},${g},${b},${a.toFixed(2)})`;
-    };
-
-    const cellColor = (c) => {
-      if (c.isFuture) return 'transparent';
-      if (!c.pnl) return T.bgDeep;
-      const intensity = Math.min(1, Math.abs(c.pnl) / maxAbs);
-      return hexAlpha(c.pnl > 0 ? T.win : T.loss, 0.25 + intensity * 0.75);
-    };
-
-    return `<div style="display:flex;gap:3px">
-      ${cols.map(col => `
-        <div style="display:flex;flex-direction:column;gap:3px;flex:1">
-          ${col.map(c => `<div title="${c.key}: ${c.pnl !== null ? fmtMoney(c.pnl) : ''}" style="width:100%;aspect-ratio:1;border-radius:2px;background:${cellColor(c)};border:${c.isFuture ? 'none' : '0.5px solid ' + T.line}"></div>`).join('')}
-        </div>`).join('')}
-    </div>
-    <div style="display:flex;align-items:center;gap:6px;margin-top:12px;font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1px">
-      LOSS
-      ${[0.3, 0.6, 0.9].map(a => `<div style="width:10px;height:10px;border-radius:2px;background:${hexAlpha(T.loss, a)}"></div>`).join('')}
-      <div style="width:10px;height:10px;border-radius:2px;background:${T.bgDeep}"></div>
-      ${[0.3, 0.6, 0.9].map(a => `<div style="width:10px;height:10px;border-radius:2px;background:${hexAlpha(T.win, a)}"></div>`).join('')}
-      WIN
-    </div>`;
+  buildCalendar(closed){
+    const pd={};closed.forEach(t=>{pd[t.date]=(pd[t.date]||0)+t.pnl;});const ma=Math.max(...Object.values(pd).map(Math.abs),1);
+    const today=new Date(),weeks=10,cells=[],ed=new Date(today);ed.setDate(today.getDate()+(6-today.getDay()));const sd=new Date(ed);sd.setDate(ed.getDate()-(weeks*7-1));
+    for(let d=0;d<weeks*7;d++){const date=new Date(sd);date.setDate(sd.getDate()+d);const key=date.toISOString().slice(0,10);const pnl=pd[key];const isFuture=date>today;cells.push({key,pnl:isFuture?null:(pnl??0),isFuture});}
+    const cols=[];for(let w=0;w<weeks;w++)cols.push(cells.slice(w*7,w*7+7));
+    const ha=(hex,a)=>{const h=hex.replace('#','');const r=parseInt(h.substring(0,2),16),g=parseInt(h.substring(2,4),16),b=parseInt(h.substring(4,6),16);return`rgba(${r},${g},${b},${a.toFixed(2)})`;};
+    const cc=(c)=>{if(c.isFuture)return'transparent';if(!c.pnl)return T.bgDeep;const intensity=Math.min(1,Math.abs(c.pnl)/ma);return ha(c.pnl>0?T.win:T.loss,0.25+intensity*0.75);};
+    return`<div style="display:flex;gap:3px">${cols.map(col=>`<div style="display:flex;flex-direction:column;gap:3px;flex:1">${col.map(c=>`<div title="${c.key}" style="width:100%;aspect-ratio:1;border-radius:2px;background:${cc(c)};border:${c.isFuture?'none':'0.5px solid '+T.line}"></div>`).join('')}</div>`).join('')}</div><div style="display:flex;align-items:center;gap:6px;margin-top:12px;font-family:${F.mono};font-size:9px;color:${T.inkMute}">LOSS ${[0.3,0.6,0.9].map(a=>`<div style="width:10px;height:10px;border-radius:2px;background:${ha(T.loss,a)}"></div>`).join('')}<div style="width:10px;height:10px;border-radius:2px;background:${T.bgDeep}"></div>${[0.3,0.6,0.9].map(a=>`<div style="width:10px;height:10px;border-radius:2px;background:${ha(T.win,a)}"></div>`).join('')} WIN</div>`;
   }
-
-  // ── COMPUTED STATS ───────────────────────────────────────────
-  computeStats() {
-    const trades = this.data.trades;
-    const closed = trades.filter(t => t.status === 'Closed' && t.pnl !== null);
-    const totalPnl = closed.reduce((s, t) => s + t.pnl, 0);
-    const openCount = trades.filter(t => t.status === 'Open').length;
-    const wins = closed.filter(t => t.pnl > 0);
-    const losses = closed.filter(t => t.pnl < 0);
-    const wlRatio = losses.length ? (wins.length / losses.length).toFixed(1) : wins.length > 0 ? '∞' : '—';
-    const avgR = closed.filter(t => t.r !== null).length
-      ? (closed.filter(t => t.r !== null).reduce((s, t) => s + t.r, 0) / closed.filter(t => t.r !== null).length).toFixed(2)
-      : '—';
-
-    // Streak
-    let streak = 0, bestStreak = 0, current = 0;
-    [...closed].sort((a,b) => b.date.localeCompare(a.date)).forEach(t => {
-      if (t.pnl > 0) { current++; bestStreak = Math.max(bestStreak, current); if (streak === -1) streak = current; }
-      else { if (streak === -1 || streak === current) streak = 0; current = 0; }
-    });
-    // Simpler streak calc
-    let s = 0;
-    [...closed].sort((a,b) => b.date.localeCompare(a.date)).every(t => {
-      if (t.pnl > 0) { s++; return true; }
-      return false;
-    });
-
-    return { totalPnl, openCount, streak: s, bestStreak, wlRatio, avgR };
+  computeStats(){
+    const trades=this.data.trades,closed=trades.filter(t=>t.status==='Closed'&&t.pnl!==null);
+    const totalPnl=closed.reduce((s,t)=>s+t.pnl,0),openCount=trades.filter(t=>t.status==='Open').length;
+    const wins=closed.filter(t=>t.pnl>0),losses=closed.filter(t=>t.pnl<0);
+    const wlRatio=losses.length?(wins.length/losses.length).toFixed(1):wins.length>0?'∞':'—';
+    const rTrades=closed.filter(t=>t.r!==null),avgR=rTrades.length?(rTrades.reduce((s,t)=>s+t.r,0)/rTrades.length).toFixed(2):'—';
+    let s=0,bestStreak=0,cur=0;
+    [...closed].sort((a,b)=>a.date.localeCompare(b.date)).forEach(t=>{if(t.pnl>0){cur++;bestStreak=Math.max(bestStreak,cur);}else cur=0;});
+    [...closed].sort((a,b)=>b.date.localeCompare(a.date)).every(t=>{if(t.pnl>0){s++;return true;}return false;});
+    return{totalPnl,openCount,streak:s,bestStreak,wlRatio,avgR};
   }
 }
-
-// ─── BOOT ─────────────────────────────────────────────────────
-window.__edgelog = new EdgeLogApp();
-window.__edgelog.confirmTrade = window.__edgelog.confirmTrade.bind(window.__edgelog);
-window.__edgelog.discardTrade = window.__edgelog.discardTrade.bind(window.__edgelog);
-window.__edgelog.exportCSV = window.__edgelog.exportCSV.bind(window.__edgelog);
+window.__edgelog=new EdgeLogApp();
+window.__edgelog.confirmTrade=window.__edgelog.confirmTrade.bind(window.__edgelog);
+window.__edgelog.discardTrade=window.__edgelog.discardTrade.bind(window.__edgelog);
+window.__edgelog.exportCSV=window.__edgelog.exportCSV.bind(window.__edgelog);
 </script>
 </body>
 </html>
+```
+
+**Copy everything above** → go to GitHub → click the pencil on `index.html` → Ctrl+A → Delete → Ctrl+V → Commit. Done! 🚀
