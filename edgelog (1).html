@@ -1,0 +1,1128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="theme-color" content="#0F0508"/>
+<title>EdgeLog</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%; width: 100%;
+    background: #0F0508;
+    font-family: "Inter Tight", system-ui, sans-serif;
+    color: #F2EDE3;
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+    overflow: hidden;
+  }
+  #root { height: 100%; width: 100%; }
+
+  @keyframes edgeDot { 0%, 80%, 100% { opacity: 0.2; transform: scale(0.85); } 40% { opacity: 1; transform: scale(1); } }
+  @keyframes edgeFade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes edgePop { 0% { opacity: 0; transform: scale(0.96); } 100% { opacity: 1; transform: scale(1); } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  input, button, textarea, select {
+    font-family: inherit;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  button { cursor: pointer; }
+  ::-webkit-scrollbar { display: none; }
+  * { scrollbar-width: none; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+// ─── THEME ───────────────────────────────────────────────────
+const THEME = {
+  bg: '#F2EDE3',
+  bgDeep: '#E8E0D0',
+  surface: '#FBF7EE',
+  ink: '#1A0A10',
+  inkSoft: '#5B4048',
+  inkMute: '#8A7A80',
+  line: 'rgba(58,15,31,0.12)',
+  primary: '#3A0F1F',
+  primaryDeep: '#26070F',
+  win: '#4A7C2A',
+  winGlow: 'rgba(166,230,104,0.35)',
+  loss: '#B84A3D',
+  lossGlow: 'rgba(184,74,61,0.18)',
+  gold: '#B8894A',
+  accent: '#D4C4A8',
+};
+const FONTS = {
+  display: '"Instrument Serif", "Times New Roman", serif',
+  ui: '"Inter Tight", -apple-system, system-ui, sans-serif',
+  mono: '"JetBrains Mono", "SF Mono", Menlo, monospace',
+};
+const T = THEME;
+const F = FONTS;
+
+// ─── STORAGE ─────────────────────────────────────────────────
+const STORAGE_KEY = 'edgelog_v1';
+function loadData() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch(e) {}
+  return { trades: [], messages: [] };
+}
+function saveData(data) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch(e) {}
+}
+
+// ─── UTILS ───────────────────────────────────────────────────
+function fmtMoney(n, { sign = false, decimals = 2 } = {}) {
+  if (n === null || n === undefined) return '—';
+  const abs = Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  const s = n < 0 ? '-' : (sign && n > 0 ? '+' : '');
+  return `${s}$${abs}`;
+}
+function fmtPct(n, { sign = true } = {}) {
+  if (n === null || n === undefined) return '—';
+  const s = sign && n > 0 ? '+' : n < 0 ? '-' : '';
+  return `${s}${Math.abs(n).toFixed(2)}%`;
+}
+function fmtDate(d) {
+  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+function nowTime() {
+  return new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+// ─── AI PARSING ──────────────────────────────────────────────
+async function parseTradeWithAI(text) {
+  const today = todayISO();
+  const systemPrompt = `You are a trading journal assistant that parses natural language trade entries from a stock trader.
+
+Extract trade information from the user's message and return ONLY a JSON object with these fields (use null for missing):
+{
+  "type": "trade" | "query" | "note",
+  "ticker": string or null,
+  "direction": "Long" | "Short" | "Add" | null,
+  "entry": number or null,
+  "exit": number or null,
+  "size": number or null,
+  "stop": number or null,
+  "target": number or null,
+  "emotion": string or null (e.g. "Calm", "Confident", "FOMO", "Revenge", "Hope", "Patient", "Anxious"),
+  "setup": string or null (e.g. "Breakout", "Pullback", "Momentum", "Reversal", "Add"),
+  "thesis": string or null,
+  "queryType": null | "weekly" | "best" | "worst" | "stats" | "ticker",
+  "queryTicker": string or null,
+  "aiComment": string (a brief insightful comment about the trade or answer to the query, 1-2 sentences, like a smart analyst would say)
+}
+
+Today is ${today}.
+For "type": use "trade" if logging a trade, "query" if asking a question about performance, "note" if general note.
+For emotion: infer from context if not stated explicitly.
+For setup: infer from context (e.g. "breakout from consolidation" = "Breakout").
+Return ONLY the JSON, no markdown, no explanation.`;
+
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 1000,
+      system: systemPrompt,
+      messages: [{ role: "user", content: text }]
+    })
+  });
+  const data = await response.json();
+  const raw = data.content?.[0]?.text || '{}';
+  try {
+    return JSON.parse(raw.replace(/```json|```/g, '').trim());
+  } catch(e) {
+    return { type: 'note', aiComment: "Got it, noted." };
+  }
+}
+
+async function generateWeeklySummary(trades) {
+  const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
+  const weekTrades = trades.filter(t => new Date(t.date) >= weekAgo && t.pnl !== null);
+  if (weekTrades.length === 0) return { pnl: 0, winRate: 0, trades: 0, best: null, worst: null, comment: "No closed trades this week yet." };
+  const pnl = weekTrades.reduce((s, t) => s + t.pnl, 0);
+  const wins = weekTrades.filter(t => t.pnl > 0);
+  const winRate = Math.round(wins.length / weekTrades.length * 100);
+  const best = weekTrades.reduce((b, t) => t.pnl > (b?.pnl || -Infinity) ? t : b, null);
+  const worst = weekTrades.reduce((w, t) => t.pnl < (w?.pnl || Infinity) ? t : w, null);
+  return { pnl, winRate, trades: weekTrades.length, best, worst };
+}
+
+// ─── COMPONENTS ──────────────────────────────────────────────
+function EdgeLogLogo({ size = 20 }) {
+  return `<div style="display:flex;align-items:center;gap:8px">
+    <svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none">
+      <path d="M3 19 L12 6 L21 19" stroke="${T.ink}" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" fill="none"/>
+      <circle cx="12" cy="6" r="1.8" fill="${T.primary}"/>
+      <path d="M7 19 L17 19" stroke="${T.ink}" stroke-width="2" stroke-linecap="square"/>
+    </svg>
+    <div style="font-family:${F.display};font-size:20px;color:${T.ink};letter-spacing:-0.3px;line-height:1">
+      <em>Edge</em>Log
+    </div>
+  </div>`;
+}
+
+// ─── MAIN APP ────────────────────────────────────────────────
+class EdgeLogApp {
+  constructor() {
+    this.data = loadData();
+    this.page = localStorage.getItem('edgelog-page') || 'chat';
+    this.root = document.getElementById('root');
+    this.render();
+  }
+
+  setPage(page) {
+    this.page = page;
+    localStorage.setItem('edgelog-page', page);
+    this.render();
+  }
+
+  addTrade(trade) {
+    this.data.trades.unshift(trade);
+    saveData(this.data);
+  }
+
+  addMessage(msg) {
+    this.data.messages.push(msg);
+    saveData(this.data);
+  }
+
+  render() {
+    this.root.innerHTML = '';
+    const app = document.createElement('div');
+    app.style.cssText = `height:100%;display:flex;flex-direction:column;background:${T.bg};position:relative;max-width:430px;margin:0 auto;`;
+
+    // Content area
+    const content = document.createElement('div');
+    content.style.cssText = 'flex:1;overflow:hidden;position:relative;';
+
+    if (this.page === 'chat') {
+      this.renderChat(content);
+    } else if (this.page === 'log') {
+      this.renderLogbook(content);
+    } else {
+      this.renderDashboard(content);
+    }
+
+    // Bottom nav
+    const nav = this.renderNav();
+
+    app.appendChild(content);
+    app.appendChild(nav);
+    this.root.appendChild(app);
+  }
+
+  renderNav() {
+    const nav = document.createElement('div');
+    nav.style.cssText = `background:${T.bg};border-top:1px solid ${T.line};padding:10px 0 calc(10px + env(safe-area-inset-bottom));display:flex;justify-content:space-around;flex-shrink:0;z-index:40;`;
+
+    const items = [
+      { id: 'chat', label: 'Chat', icon: this.chatIcon.bind(this) },
+      { id: 'log', label: 'Logbook', icon: this.logIcon.bind(this) },
+      { id: 'dash', label: 'Edge', icon: this.dashIcon.bind(this) },
+    ];
+
+    items.forEach(item => {
+      const active = this.page === item.id;
+      const btn = document.createElement('button');
+      btn.style.cssText = `background:none;border:none;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 20px;position:relative;`;
+      if (active) {
+        const bar = document.createElement('div');
+        bar.style.cssText = `position:absolute;top:-10px;left:50%;transform:translateX(-50%);width:20px;height:2px;background:${T.primary};`;
+        btn.appendChild(bar);
+      }
+      const iconSvg = document.createElement('div');
+      iconSvg.innerHTML = item.icon(active);
+      const label = document.createElement('span');
+      label.style.cssText = `font-family:${F.mono};font-size:9px;font-weight:600;color:${active ? T.primary : T.inkMute};letter-spacing:1.5px;text-transform:uppercase;`;
+      label.textContent = item.label;
+      btn.appendChild(iconSvg);
+      btn.appendChild(label);
+      btn.onclick = () => this.setPage(item.id);
+      nav.appendChild(btn);
+    });
+    return nav;
+  }
+
+  chatIcon(active) {
+    const c = active ? T.primary : T.inkMute;
+    return `<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M3 6h18v10H9l-6 5V6z" stroke="${c}" stroke-width="1.6" stroke-linejoin="miter" fill="${active ? c+'18' : 'none'}"/></svg>`;
+  }
+  logIcon(active) {
+    const c = active ? T.primary : T.inkMute;
+    return `<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 4h16v16H4zM4 9h16M4 14h16M9 4v16" stroke="${c}" stroke-width="1.6" fill="${active ? c+'18' : 'none'}"/></svg>`;
+  }
+  dashIcon(active) {
+    const c = active ? T.primary : T.inkMute;
+    return `<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M3 17 L9 11 L13 14 L21 6" stroke="${c}" stroke-width="1.8" stroke-linejoin="miter" stroke-linecap="square" fill="none"/><path d="M3 21 L21 21" stroke="${c}" stroke-width="1.6"/></svg>`;
+  }
+
+  // ── CHAT PAGE ────────────────────────────────────────────────
+  renderChat(container) {
+    container.style.cssText = 'flex:1;overflow:hidden;display:flex;flex-direction:column;position:relative;';
+
+    // Header
+    const header = document.createElement('div');
+    header.style.cssText = `background:${T.bg};padding:calc(env(safe-area-inset-top) + 12px) 20px 12px;border-bottom:1px solid ${T.line};flex-shrink:0;`;
+
+    const topRow = document.createElement('div');
+    topRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;';
+    topRow.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+          <path d="M3 19 L12 6 L21 19" stroke="${T.ink}" stroke-width="2" stroke-linecap="square" fill="none"/>
+          <circle cx="12" cy="6" r="1.8" fill="${T.primary}"/>
+          <path d="M7 19 L17 19" stroke="${T.ink}" stroke-width="2" stroke-linecap="square"/>
+        </svg>
+        <div style="font-family:${F.display};font-size:20px;color:${T.ink};letter-spacing:-0.3px"><em>Edge</em>Log</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="width:6px;height:6px;border-radius:50%;background:${T.win};box-shadow:0 0 8px ${T.win}"></div>
+        <span style="font-family:${F.mono};font-size:10px;color:${T.inkSoft};letter-spacing:1.5px">LIVE</span>
+      </div>`;
+
+    // Stats strip
+    const stats = this.computeStats();
+    const statsRow = document.createElement('div');
+    statsRow.style.cssText = 'display:flex;gap:12px;';
+    [
+      { label: 'Total P&L', value: fmtMoney(stats.totalPnl, {sign:true}), color: stats.totalPnl >= 0 ? T.win : T.loss },
+      { label: 'Open', value: stats.openCount },
+      { label: 'Streak', value: stats.streak + (stats.streak > 0 ? ' W' : '') },
+    ].forEach(s => {
+      const el = document.createElement('div');
+      el.style.cssText = 'flex:1;';
+      el.innerHTML = `
+        <div style="font-family:${F.mono};font-size:9px;font-weight:600;color:${T.inkMute};letter-spacing:1.5px;text-transform:uppercase;margin-bottom:2px">${s.label}</div>
+        <div style="font-family:${F.display};font-size:22px;color:${s.color || T.ink};line-height:1;font-feature-settings:'tnum'">${s.value}</div>`;
+      statsRow.appendChild(el);
+    });
+
+    header.appendChild(topRow);
+    header.appendChild(statsRow);
+
+    // Messages
+    const msgArea = document.createElement('div');
+    msgArea.id = 'msg-area';
+    msgArea.style.cssText = 'flex:1;overflow-y:auto;padding:16px 16px 100px;display:flex;flex-direction:column;gap:10px;';
+
+    // Welcome message if no messages
+    if (this.data.messages.length === 0) {
+      const welcome = document.createElement('div');
+      welcome.style.cssText = `align-self:flex-start;max-width:88%;`;
+      welcome.innerHTML = `
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;margin-left:2px">
+          <div style="width:16px;height:16px;border-radius:3px;background:${T.ink};color:${T.bg};font-family:${F.mono};font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center">E</div>
+          <span style="font-family:${F.mono};font-size:9px;font-weight:700;letter-spacing:1.5px;color:${T.inkMute}">EDGE</span>
+        </div>
+        <div style="background:transparent;padding:8px 12px;font-family:${F.ui};font-size:14px;line-height:1.45;color:${T.inkSoft};font-style:italic;border-left:2px solid ${T.gold}">
+          Hey. Type a trade in plain English — I'll parse it, confirm the details, and log it. You can also ask me how you're doing.
+        </div>`;
+      msgArea.appendChild(welcome);
+    }
+
+    // Render existing messages
+    this.data.messages.forEach(msg => {
+      const el = this.createMessageEl(msg);
+      if (el) msgArea.appendChild(el);
+    });
+
+    // Input bar
+    const inputBar = document.createElement('div');
+    inputBar.style.cssText = `position:absolute;bottom:8px;left:12px;right:12px;background:${T.surface};border-radius:24px;border:1px solid ${T.line};box-shadow:0 8px 24px rgba(0,0,0,0.08);padding:6px 6px 6px 14px;display:flex;align-items:center;gap:8px;z-index:30;`;
+
+    const input = document.createElement('input');
+    input.placeholder = 'Log a trade, or ask anything…';
+    input.style.cssText = `flex:1;border:none;outline:none;background:transparent;font-family:${F.ui};font-size:14px;color:${T.ink};padding:8px 0;`;
+
+    const sendBtn = document.createElement('button');
+    sendBtn.style.cssText = `width:36px;height:36px;border-radius:50%;border:none;background:${T.bgDeep};color:${T.inkMute};display:flex;align-items:center;justify-content:center;transition:all 0.2s;flex-shrink:0;`;
+    sendBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7 L12 2 L8 7 L12 12 Z" fill="currentColor"/></svg>`;
+
+    input.addEventListener('input', () => {
+      sendBtn.style.background = input.value.trim() ? T.primary : T.bgDeep;
+      sendBtn.style.color = input.value.trim() ? T.bg : T.inkMute;
+    });
+
+    const doSend = async () => {
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+      sendBtn.style.background = T.bgDeep;
+      sendBtn.style.color = T.inkMute;
+      await this.handleUserMessage(text, msgArea);
+    };
+
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') doSend(); });
+    sendBtn.onclick = doSend;
+
+    inputBar.appendChild(input);
+    inputBar.appendChild(sendBtn);
+
+    container.appendChild(header);
+    container.appendChild(msgArea);
+    container.appendChild(inputBar);
+
+    // Scroll to bottom
+    setTimeout(() => { msgArea.scrollTop = msgArea.scrollHeight; }, 50);
+  }
+
+  createMessageEl(msg) {
+    const wrap = document.createElement('div');
+
+    if (msg.role === 'user') {
+      wrap.style.cssText = `align-self:flex-end;max-width:82%;background:${T.primary};color:${T.bg};border-radius:14px 14px 4px 14px;padding:9px 13px;font-family:${F.ui};font-size:14px;line-height:1.4;animation:edgeFade 0.3s ease-out;`;
+      wrap.textContent = msg.text;
+    } else if (msg.role === 'ai') {
+      wrap.style.cssText = 'align-self:flex-start;max-width:92%;display:flex;flex-direction:column;gap:4px;animation:edgeFade 0.3s ease-out;';
+      const aiLabel = document.createElement('div');
+      aiLabel.style.cssText = 'display:flex;align-items:center;gap:6px;margin-left:2px;';
+      aiLabel.innerHTML = `
+        <div style="width:16px;height:16px;border-radius:3px;background:${T.ink};color:${T.bg};font-family:${F.mono};font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center">E</div>
+        <span style="font-family:${F.mono};font-size:9px;font-weight:700;letter-spacing:1.5px;color:${T.inkMute}">EDGE</span>`;
+      wrap.appendChild(aiLabel);
+
+      if (msg.type === 'text') {
+        const bubble = document.createElement('div');
+        bubble.style.cssText = `background:transparent;padding:6px 10px;font-family:${F.ui};font-size:14px;line-height:1.45;color:${T.inkSoft};font-style:italic;border-left:2px solid ${T.gold};`;
+        bubble.textContent = msg.text;
+        wrap.appendChild(bubble);
+      } else if (msg.type === 'parse') {
+        wrap.appendChild(this.createParseCard(msg.parsed, msg.tradeId));
+      } else if (msg.type === 'summary') {
+        wrap.appendChild(this.createSummaryCard(msg.summary));
+      }
+    }
+    return wrap;
+  }
+
+  createParseCard(parsed, tradeId) {
+    const card = document.createElement('div');
+    const isClosed = parsed.exit !== null;
+    card.style.cssText = `background:${T.surface};border:1px solid ${T.line};border-left:3px solid ${T.primary};border-radius:10px;padding:10px 12px 12px;max-width:92%;`;
+
+    const pnl = (isClosed && parsed.entry && parsed.exit && parsed.size)
+      ? (parsed.exit - parsed.entry) * parsed.size * (parsed.direction === 'Short' ? -1 : 1)
+      : null;
+    const pnlPct = (pnl !== null && parsed.entry) ? (pnl / (parsed.entry * parsed.size)) * 100 : null;
+
+    card.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding-bottom:6px;border-bottom:1px dashed ${T.line}">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-family:${F.mono};font-size:9px;font-weight:700;color:${T.primary};letter-spacing:2px">PARSED</span>
+          <span style="font-family:${F.mono};font-size:12px;font-weight:700;color:${T.ink};padding:2px 7px;border:1px solid ${T.line};border-radius:4px;background:${T.surface}">${parsed.ticker || '?'}</span>
+          <span style="font-family:${F.mono};font-size:10px;font-weight:600;color:${parsed.direction === 'Long' ? T.win : parsed.direction === 'Add' ? T.gold : T.loss};padding:2px 6px;border:1px solid ${parsed.direction === 'Long' ? T.win : parsed.direction === 'Add' ? T.gold : T.loss}40;border-radius:3px;background:${parsed.direction === 'Long' ? T.win : parsed.direction === 'Add' ? T.gold : T.loss}0F">
+            ${parsed.direction === 'Long' ? '↑ ' : parsed.direction === 'Short' ? '↓ ' : '+ '}${parsed.direction || '?'}
+          </span>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px 12px;margin-bottom:12px">
+        ${parsed.entry ? `<div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Entry</div><div style="font-family:${F.mono};font-size:13px;font-weight:600;color:${T.ink}">${fmtMoney(parsed.entry)}</div></div>` : ''}
+        ${parsed.size ? `<div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Size</div><div style="font-family:${F.mono};font-size:13px;font-weight:600;color:${T.ink}">${parsed.size} sh</div></div>` : ''}
+        ${parsed.exit ? `<div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Exit</div><div style="font-family:${F.mono};font-size:13px;font-weight:600;color:${T.ink}">${fmtMoney(parsed.exit)}</div></div>` : ''}
+        ${!parsed.exit && parsed.stop ? `<div><div style="font-family:${F.mono};font-size:9px;color:${T.loss};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Stop</div><div style="font-family:${F.mono};font-size:13px;font-weight:600;color:${T.loss}">${fmtMoney(parsed.stop)}</div></div>` : ''}
+        ${!parsed.exit && parsed.target ? `<div><div style="font-family:${F.mono};font-size:9px;color:${T.win};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Target</div><div style="font-family:${F.mono};font-size:13px;font-weight:600;color:${T.win}">${fmtMoney(parsed.target)}</div></div>` : ''}
+        ${pnl !== null ? `<div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">P&L</div><div style="font-family:${F.mono};font-size:13px;font-weight:600;color:${pnl > 0 ? T.win : T.loss}">${fmtMoney(pnl, {sign:true})}</div></div>` : ''}
+        ${pnlPct !== null ? `<div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Return</div><div style="font-family:${F.mono};font-size:13px;font-weight:600;color:${pnlPct > 0 ? T.win : T.loss}">${fmtPct(pnlPct)}</div></div>` : ''}
+        ${parsed.emotion ? `<div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Emotion</div><div style="font-family:${F.mono};font-size:12px;font-weight:600;color:${T.ink}">${parsed.emotion}</div></div>` : ''}
+        ${parsed.setup ? `<div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Setup</div><div style="font-family:${F.mono};font-size:12px;font-weight:600;color:${T.ink}">${parsed.setup}</div></div>` : ''}
+      </div>
+      ${parsed.thesis ? `<div style="font-family:${F.mono};font-size:11px;color:${T.inkSoft};font-style:italic;margin-bottom:12px;padding-top:8px;border-top:1px dashed ${T.line}">→ ${parsed.thesis}</div>` : ''}
+      <div id="confirm-actions-${tradeId}" style="display:flex;gap:6px;padding-top:10px;border-top:1px solid ${T.line}">
+        <button onclick="window.__edgelog.confirmTrade('${tradeId}')" style="flex:1;background:${T.primary};color:${T.bg};border:none;border-radius:6px;padding:7px 10px;font-family:${F.mono};font-size:10px;font-weight:700;letter-spacing:1.5px">✓ CONFIRM</button>
+        <button onclick="window.__edgelog.discardTrade('${tradeId}')" style="background:transparent;color:${T.ink};border:1px solid ${T.line};border-radius:6px;padding:7px 10px;font-family:${F.mono};font-size:10px;font-weight:600;letter-spacing:1.5px">DISCARD</button>
+      </div>`;
+
+    return card;
+  }
+
+  createSummaryCard(summary) {
+    const card = document.createElement('div');
+    card.style.cssText = `background:${T.surface};border:1px solid ${T.line};border-radius:10px;padding:12px;max-width:92%;`;
+    const pnlColor = summary.pnl >= 0 ? T.win : T.loss;
+    card.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <span style="font-family:${F.mono};font-size:9px;font-weight:700;color:${T.primary};letter-spacing:2px">THIS WEEK</span>
+        <span style="font-family:${F.mono};font-size:10px;color:${T.inkMute}">${summary.dateRange || ''}</span>
+      </div>
+      <div style="font-family:${F.display};font-size:36px;color:${pnlColor};line-height:1;font-feature-settings:'tnum';margin-bottom:10px">${fmtMoney(summary.pnl, {sign:true})}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;padding-top:10px;border-top:1px dashed ${T.line}">
+        <div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Win rate</div><div style="font-family:${F.mono};font-size:14px;font-weight:600;color:${T.ink}">${summary.winRate}%</div></div>
+        <div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Trades</div><div style="font-family:${F.mono};font-size:14px;font-weight:600;color:${T.ink}">${summary.trades}</div></div>
+        ${summary.best ? `<div><div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px">Best</div><div style="font-family:${F.mono};font-size:12px;font-weight:700;color:${T.ink}">${summary.best.ticker}</div><div style="font-family:${F.mono};font-size:11px;color:${T.win}">${fmtMoney(summary.best.pnl, {sign:true})}</div></div>` : ''}
+      </div>`;
+    return card;
+  }
+
+  async handleUserMessage(text, msgArea) {
+    // Add user message
+    const userMsg = { id: `u_${Date.now()}`, role: 'user', text, time: nowTime() };
+    this.addMessage(userMsg);
+    const userEl = this.createMessageEl(userMsg);
+    msgArea.appendChild(userEl);
+    msgArea.scrollTop = msgArea.scrollHeight;
+
+    // Typing indicator
+    const typingEl = document.createElement('div');
+    typingEl.style.cssText = 'align-self:flex-start;animation:edgeFade 0.3s ease-out;';
+    typingEl.innerHTML = `
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;margin-left:2px">
+        <div style="width:16px;height:16px;border-radius:3px;background:${T.ink};color:${T.bg};font-family:${F.mono};font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center">E</div>
+      </div>
+      <div style="display:flex;gap:4px;padding:10px 12px;background:${T.surface};border:1px solid ${T.line};border-radius:10px;width:fit-content">
+        ${[0,1,2].map(i => `<div style="width:5px;height:5px;border-radius:50%;background:${T.inkMute};animation:edgeDot 1.2s ${i*0.15}s infinite ease-in-out"></div>`).join('')}
+      </div>`;
+    msgArea.appendChild(typingEl);
+    msgArea.scrollTop = msgArea.scrollHeight;
+
+    try {
+      const parsed = await parseTradeWithAI(text);
+      msgArea.removeChild(typingEl);
+
+      const tradeId = `t_${Date.now()}`;
+
+      if (parsed.type === 'query') {
+        // Generate weekly summary
+        const summary = await generateWeeklySummary(this.data.trades);
+        const now = new Date();
+        const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
+        summary.dateRange = `${weekAgo.toLocaleDateString('en-US',{month:'short',day:'numeric'})}–${now.toLocaleDateString('en-US',{month:'short',day:'numeric'})}`;
+
+        const aiMsg = { id: `a_${Date.now()}`, role: 'ai', type: 'summary', summary, time: nowTime() };
+        this.addMessage(aiMsg);
+        msgArea.appendChild(this.createMessageEl(aiMsg));
+
+        if (parsed.aiComment) {
+          const commentMsg = { id: `a_${Date.now()+1}`, role: 'ai', type: 'text', text: parsed.aiComment, time: nowTime() };
+          this.addMessage(commentMsg);
+          msgArea.appendChild(this.createMessageEl(commentMsg));
+        }
+      } else if (parsed.type === 'trade' && parsed.ticker) {
+        // Store pending trade
+        const pnl = (parsed.exit && parsed.entry && parsed.size)
+          ? (parsed.exit - parsed.entry) * parsed.size * (parsed.direction === 'Short' ? -1 : 1)
+          : null;
+        const pnlPct = (pnl !== null && parsed.entry && parsed.size) ? (pnl / (parsed.entry * parsed.size)) * 100 : null;
+        const rMultiple = (pnl !== null && parsed.stop && parsed.entry && parsed.size)
+          ? pnl / (Math.abs(parsed.entry - parsed.stop) * parsed.size)
+          : null;
+
+        const pendingTrade = {
+          id: tradeId,
+          date: todayISO(),
+          ticker: parsed.ticker,
+          direction: parsed.direction || 'Long',
+          entry: parsed.entry,
+          exit: parsed.exit || null,
+          size: parsed.size,
+          stop: parsed.stop,
+          target: parsed.target,
+          pnl,
+          pnlPct,
+          r: rMultiple,
+          setup: parsed.setup,
+          emotion: parsed.emotion,
+          thesis: parsed.thesis,
+          status: parsed.exit ? 'Closed' : 'Open',
+          confirmed: false,
+        };
+
+        window.__pendingTrades = window.__pendingTrades || {};
+        window.__pendingTrades[tradeId] = pendingTrade;
+
+        const aiMsg = { id: `a_${Date.now()}`, role: 'ai', type: 'parse', parsed, tradeId, time: nowTime() };
+        this.addMessage(aiMsg);
+        msgArea.appendChild(this.createMessageEl(aiMsg));
+
+        if (parsed.aiComment) {
+          const commentMsg = { id: `a_${Date.now()+1}`, role: 'ai', type: 'text', text: parsed.aiComment, time: nowTime() };
+          this.addMessage(commentMsg);
+          msgArea.appendChild(this.createMessageEl(commentMsg));
+        }
+      } else {
+        // General note/response
+        const commentMsg = { id: `a_${Date.now()}`, role: 'ai', type: 'text', text: parsed.aiComment || "Got it.", time: nowTime() };
+        this.addMessage(commentMsg);
+        msgArea.appendChild(this.createMessageEl(commentMsg));
+      }
+    } catch(err) {
+      msgArea.removeChild(typingEl);
+      const errMsg = { id: `a_${Date.now()}`, role: 'ai', type: 'text', text: "Hmm, had trouble parsing that. Try again with ticker, direction, price, and size.", time: nowTime() };
+      this.addMessage(errMsg);
+      msgArea.appendChild(this.createMessageEl(errMsg));
+    }
+
+    msgArea.scrollTop = msgArea.scrollHeight;
+  }
+
+  confirmTrade(tradeId) {
+    const trade = window.__pendingTrades?.[tradeId];
+    if (!trade) return;
+    trade.confirmed = true;
+    this.addTrade(trade);
+
+    // Update button area
+    const actionsEl = document.getElementById(`confirm-actions-${tradeId}`);
+    if (actionsEl) {
+      actionsEl.innerHTML = `<div style="font-family:${F.mono};font-size:10px;font-weight:700;color:${T.win};letter-spacing:1.5px;padding:4px 0">✓ LOGGED TO LEDGER</div>`;
+    }
+
+    // Show confirmation message
+    const msgArea = document.getElementById('msg-area');
+    if (msgArea) {
+      const confirmEl = document.createElement('div');
+      confirmEl.style.cssText = `align-self:flex-start;max-width:88%;animation:edgeFade 0.3s ease-out;`;
+      confirmEl.innerHTML = `
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;margin-left:2px">
+          <div style="width:16px;height:16px;border-radius:3px;background:${T.ink};color:${T.bg};font-family:${F.mono};font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center">E</div>
+        </div>
+        <div style="background:transparent;padding:6px 10px;font-family:${F.ui};font-size:14px;line-height:1.45;color:${T.inkSoft};font-style:italic;border-left:2px solid ${T.win}">
+          ${trade.ticker} trade saved. Check your Logbook.
+        </div>`;
+      msgArea.appendChild(confirmEl);
+      msgArea.scrollTop = msgArea.scrollHeight;
+
+      // Save confirmation message
+      const confMsg = { id: `a_${Date.now()}`, role: 'ai', type: 'text', text: `${trade.ticker} trade saved. Check your Logbook.`, time: nowTime() };
+      this.addMessage(confMsg);
+    }
+  }
+
+  discardTrade(tradeId) {
+    const actionsEl = document.getElementById(`confirm-actions-${tradeId}`);
+    if (actionsEl) {
+      actionsEl.innerHTML = `<div style="font-family:${F.mono};font-size:10px;color:${T.inkMute};letter-spacing:1.5px;padding:4px 0">DISCARDED</div>`;
+    }
+    if (window.__pendingTrades) delete window.__pendingTrades[tradeId];
+  }
+
+  // ── LOGBOOK PAGE ─────────────────────────────────────────────
+  renderLogbook(container) {
+    container.style.cssText = 'height:100%;overflow-y:auto;';
+
+    const page = document.createElement('div');
+    page.style.cssText = `display:flex;flex-direction:column;min-height:100%;background:${T.bg};animation:edgeFade 0.3s ease-out;`;
+
+    // Header
+    const header = document.createElement('div');
+    header.style.cssText = `background:${T.bg};padding:calc(env(safe-area-inset-top) + 12px) 20px 0;flex-shrink:0;`;
+    header.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+            <path d="M3 19 L12 6 L21 19" stroke="${T.ink}" stroke-width="2" stroke-linecap="square" fill="none"/>
+            <circle cx="12" cy="6" r="1.8" fill="${T.primary}"/>
+            <path d="M7 19 L17 19" stroke="${T.ink}" stroke-width="2" stroke-linecap="square"/>
+          </svg>
+          <div style="font-family:${F.display};font-size:20px;color:${T.ink};letter-spacing:-0.3px"><em>Edge</em>Log</div>
+        </div>
+        <button onclick="window.__edgelog.exportCSV()" style="font-family:${F.mono};font-size:10px;font-weight:700;color:${T.primary};letter-spacing:1.5px;padding:6px 10px;border:1px solid ${T.primary}50;border-radius:4px;background:transparent">↓ CSV</button>
+      </div>
+      <div style="font-family:${F.display};font-size:36px;color:${T.ink};font-weight:400;letter-spacing:-0.5px;line-height:1;margin-bottom:14px"><em>The</em> Ledger</div>`;
+
+    page.appendChild(header);
+
+    // Stats
+    const trades = this.data.trades;
+    const closed = trades.filter(t => t.status === 'Closed');
+    const totalPnl = closed.reduce((s, t) => s + (t.pnl || 0), 0);
+    const wins = closed.filter(t => t.pnl > 0);
+    const winRate = closed.length ? Math.round(wins.length / closed.length * 100) : 0;
+
+    const stats = document.createElement('div');
+    stats.style.cssText = `display:flex;gap:16px;padding:12px 20px;border-top:1px solid ${T.line};border-bottom:1px solid ${T.line};background:${T.bg};`;
+    [
+      { k: 'Net P&L', v: fmtMoney(totalPnl, {sign:true}), color: totalPnl >= 0 ? T.win : T.loss },
+      { k: 'Trades', v: trades.length },
+      { k: 'Win Rate', v: `${winRate}%` },
+    ].forEach(s => {
+      const el = document.createElement('div');
+      el.style.cssText = 'flex:1;';
+      el.innerHTML = `<div style="font-family:${F.mono};font-size:9px;font-weight:600;color:${T.inkMute};letter-spacing:1.5px;text-transform:uppercase;margin-bottom:2px">${s.k}</div><div style="font-family:${F.mono};font-size:16px;font-weight:600;color:${s.color || T.ink};font-feature-settings:'tnum'">${s.v}</div>`;
+      stats.appendChild(el);
+    });
+    page.appendChild(stats);
+
+    // Filters
+    const filters = ['All', 'Open', 'Wins', 'Losses'];
+    const filterState = { current: 'All' };
+    const filterBar = document.createElement('div');
+    filterBar.style.cssText = `display:flex;gap:6px;padding:10px 16px;overflow-x:auto;border-bottom:1px solid ${T.line};background:${T.bg};flex-shrink:0;`;
+
+    const tradeList = document.createElement('div');
+    tradeList.style.cssText = 'flex:1;padding-bottom:20px;';
+
+    const renderFiltered = () => {
+      tradeList.innerHTML = '';
+      const f = filterState.current;
+      const filtered = trades.filter(t => {
+        if (f === 'All') return true;
+        if (f === 'Open') return t.status === 'Open';
+        if (f === 'Wins') return t.pnl > 0;
+        if (f === 'Losses') return t.pnl < 0;
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        tradeList.innerHTML = `<div style="padding:40px;text-align:center;font-family:${F.ui};color:${T.inkMute}">No trades yet. Log your first trade in the Chat tab.</div>`;
+        return;
+      }
+
+      filtered.forEach((t, idx) => {
+        const row = this.createLogRow(t, idx === filtered.length - 1);
+        tradeList.appendChild(row);
+      });
+    };
+
+    filters.forEach(f => {
+      const btn = document.createElement('button');
+      const updateBtns = () => {
+        filterBar.querySelectorAll('button').forEach(b => {
+          const isActive = b.dataset.filter === filterState.current;
+          b.style.background = isActive ? T.primary : 'transparent';
+          b.style.color = isActive ? T.bg : T.inkSoft;
+          b.style.borderColor = isActive ? T.primary : T.line;
+        });
+      };
+      btn.dataset.filter = f;
+      btn.style.cssText = `font-family:${F.mono};font-size:10px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;padding:6px 10px;border-radius:4px;border:1px solid ${T.line};background:${f === 'All' ? T.primary : 'transparent'};color:${f === 'All' ? T.bg : T.inkSoft};white-space:nowrap;flex-shrink:0;`;
+      btn.textContent = f;
+      btn.onclick = () => { filterState.current = f; updateBtns(); renderFiltered(); };
+      filterBar.appendChild(btn);
+    });
+
+    page.appendChild(filterBar);
+    renderFiltered();
+    page.appendChild(tradeList);
+    container.appendChild(page);
+  }
+
+  createLogRow(t) {
+    const isWin = t.pnl > 0;
+    const isLoss = t.pnl < 0;
+    const isOpen = t.status === 'Open';
+    const row = document.createElement('div');
+    row.style.cssText = `border-bottom:1px solid ${T.line};position:relative;background:${isWin ? T.win+'06' : isLoss ? T.loss+'06' : 'transparent'};`;
+
+    const edgeBar = document.createElement('div');
+    edgeBar.style.cssText = `position:absolute;left:0;top:0;bottom:0;width:2px;background:${isOpen ? T.gold : isWin ? T.win : isLoss ? T.loss : 'transparent'};`;
+    row.appendChild(edgeBar);
+
+    let expanded = false;
+    const mainRow = document.createElement('div');
+    mainRow.style.cssText = 'padding:12px 16px 12px 18px;display:flex;align-items:center;gap:10px;cursor:pointer;';
+    mainRow.innerHTML = `
+      <div style="width:42px;flex-shrink:0">
+        <div style="font-family:${F.mono};font-size:10px;color:${T.inkMute};letter-spacing:1px;text-transform:uppercase">${new Date(t.date+'T00:00:00').toLocaleDateString('en-US',{month:'short'})}</div>
+        <div style="font-family:${F.display};font-size:20px;color:${T.ink};line-height:1">${new Date(t.date+'T00:00:00').getDate()}</div>
+      </div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
+          <span style="font-family:${F.mono};font-size:14px;font-weight:700;color:${T.ink};letter-spacing:0.5px">${t.ticker}</span>
+          <span style="font-family:${F.mono};font-size:10px;font-weight:600;color:${t.direction === 'Long' ? T.win : t.direction === 'Add' ? T.gold : T.loss};padding:2px 6px;border:1px solid ${t.direction === 'Long' ? T.win : T.loss}40;border-radius:3px;background:${t.direction === 'Long' ? T.win : T.loss}0F">${t.direction === 'Long' ? '↑ Long' : t.direction === 'Add' ? '+ Add' : '↓ Short'}</span>
+          ${isOpen ? `<span style="font-family:${F.mono};font-size:9px;font-weight:600;color:${T.gold};padding:1px 5px;border:1px solid ${T.gold}60;border-radius:2px;letter-spacing:1px">OPEN</span>` : ''}
+        </div>
+        <div style="font-family:${F.mono};font-size:10px;color:${T.inkMute};font-feature-settings:'tnum'">${t.size ? t.size + ' × ' : ''}${fmtMoney(t.entry)}${t.exit ? ' → ' + fmtMoney(t.exit) : ''}</div>
+      </div>
+      <div style="text-align:right">
+        ${t.pnl !== null ? `
+          <div style="font-family:${F.mono};font-size:14px;font-weight:700;color:${isWin ? T.win : T.loss};font-feature-settings:'tnum'">${fmtMoney(t.pnl, {sign:true})}</div>
+          <div style="font-family:${F.mono};font-size:10px;color:${isWin ? T.win : T.loss};opacity:0.7">${fmtPct(t.pnlPct)}${t.r ? ' · ' + (t.r > 0 ? '+' : '') + t.r.toFixed(1) + 'R' : ''}</div>
+        ` : `<div style="font-family:${F.mono};font-size:12px;color:${T.inkMute};font-style:italic">running</div>`}
+      </div>
+      <svg width="8" height="12" viewBox="0 0 8 12" class="chevron" style="transition:transform 0.2s;flex-shrink:0"><path d="M1 1 L6 6 L1 11" stroke="${T.inkMute}" stroke-width="1.5" fill="none"/></svg>`;
+
+    const detail = document.createElement('div');
+    detail.style.cssText = `padding:0 16px 14px 60px;display:none;flex-direction:column;gap:8px;`;
+    if (t.thesis) {
+      detail.innerHTML += `<div style="font-family:${F.ui};font-size:13px;color:${T.inkSoft};line-height:1.5;padding:10px 12px;background:${T.bg};border-radius:8px;border-left:2px solid ${T.primary}">"${t.thesis}"</div>`;
+    }
+    const tags = [];
+    if (t.setup) tags.push({ label: t.setup, tone: null });
+    if (t.emotion) tags.push({ label: t.emotion, tone: ['FOMO','Hope','Revenge'].includes(t.emotion) ? 'loss' : 'win' });
+    if (t.stop) tags.push({ label: `Stop ${fmtMoney(t.stop)}`, tone: null });
+    if (t.target) tags.push({ label: `Tgt ${fmtMoney(t.target)}`, tone: null });
+    if (tags.length) {
+      const tagRow = document.createElement('div');
+      tagRow.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;';
+      tags.forEach(tag => {
+        const c = tag.tone === 'win' ? T.win : tag.tone === 'loss' ? T.loss : T.inkSoft;
+        tagRow.innerHTML += `<span style="font-family:${F.mono};font-size:10px;font-weight:600;color:${c};padding:3px 7px;border:1px solid ${c}40;border-radius:3px;background:${c}08;letter-spacing:0.5px">${tag.label}</span>`;
+      });
+      detail.appendChild(tagRow);
+    }
+
+    mainRow.onclick = () => {
+      expanded = !expanded;
+      detail.style.display = expanded ? 'flex' : 'none';
+      const chevron = mainRow.querySelector('.chevron');
+      if (chevron) chevron.style.transform = expanded ? 'rotate(90deg)' : 'none';
+    };
+
+    row.appendChild(mainRow);
+    row.appendChild(detail);
+    return row;
+  }
+
+  exportCSV() {
+    const headers = ['Date','Ticker','Direction','Entry','Exit','Size','P&L','P&L%','R','Setup','Emotion','Status','Thesis'];
+    const rows = this.data.trades.map(t => [
+      t.date, t.ticker, t.direction,
+      t.entry, t.exit || '', t.size,
+      t.pnl !== null ? t.pnl : '', t.pnlPct !== null ? t.pnlPct : '',
+      t.r !== null ? t.r : '', t.setup || '', t.emotion || '',
+      t.status, t.thesis || ''
+    ]);
+    const csv = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
+    const a = document.createElement('a');
+    a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+    a.download = `edgelog_${todayISO()}.csv`;
+    a.click();
+  }
+
+  // ── DASHBOARD PAGE ───────────────────────────────────────────
+  renderDashboard(container) {
+    container.style.cssText = 'height:100%;overflow-y:auto;';
+
+    const page = document.createElement('div');
+    page.style.cssText = `min-height:100%;background:${T.bg};padding:calc(env(safe-area-inset-top) + 12px) 16px 100px;animation:edgeFade 0.3s ease-out;`;
+
+    const stats = this.computeStats();
+    const trades = this.data.trades;
+    const closed = trades.filter(t => t.status === 'Closed' && t.pnl !== null);
+
+    // Header
+    page.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+            <path d="M3 19 L12 6 L21 19" stroke="${T.ink}" stroke-width="2" stroke-linecap="square" fill="none"/>
+            <circle cx="12" cy="6" r="1.8" fill="${T.primary}"/>
+            <path d="M7 19 L17 19" stroke="${T.ink}" stroke-width="2" stroke-linecap="square"/>
+          </svg>
+          <div style="font-family:${F.display};font-size:20px;color:${T.ink};letter-spacing:-0.3px"><em>Edge</em>Log</div>
+        </div>
+        <span style="font-family:${F.mono};font-size:10px;color:${T.inkMute};letter-spacing:1.5px">YOUR EDGE</span>
+      </div>`;
+
+    // Hero P&L
+    const heroEl = document.createElement('div');
+    heroEl.style.cssText = 'padding:4px 4px 20px;';
+    heroEl.innerHTML = `
+      <div style="font-family:${F.mono};font-size:9px;font-weight:600;color:${T.inkMute};letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">All-Time P&L</div>
+      <div style="font-family:${F.display};font-size:52px;font-weight:400;color:${stats.totalPnl >= 0 ? T.win : T.loss};line-height:1;font-feature-settings:'tnum';letter-spacing:-1px;white-space:nowrap">${fmtMoney(stats.totalPnl, {sign:true})}</div>`;
+
+    // Equity curve
+    if (closed.length > 1) {
+      const equityCanvas = this.buildEquityCurve(closed);
+      heroEl.appendChild(equityCanvas);
+    }
+    page.appendChild(heroEl);
+
+    // Row 1: Win rate + Streak
+    const row1 = document.createElement('div');
+    row1.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;';
+
+    const winRate = closed.length ? Math.round(closed.filter(t => t.pnl > 0).length / closed.length * 100) : 0;
+    row1.appendChild(this.tile('Win Rate', `
+      <div style="display:flex;align-items:center;gap:12px">
+        ${this.circularGauge(winRate)}
+        <div>
+          <div style="font-family:${F.mono};font-size:10px;color:${T.inkMute};letter-spacing:1px">W / L</div>
+          <div style="font-family:${F.display};font-size:20px;color:${T.ink};line-height:1.1">${stats.wlRatio}</div>
+          <div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1px;margin-top:4px">AVG R</div>
+          <div style="font-family:${F.display};font-size:18px;color:${T.ink};line-height:1">${stats.avgR}</div>
+        </div>
+      </div>`));
+
+    row1.appendChild(this.tile('Streak', `
+      <div style="display:flex;align-items:baseline;gap:6px">
+        <div style="font-family:${F.display};font-size:44px;color:${T.ink};line-height:0.9;font-feature-settings:'tnum'">${stats.streak}</div>
+        <div style="font-size:22px">🔥</div>
+      </div>
+      <div style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.5px;margin-top:2px">WINS IN A ROW</div>
+      <div style="margin-top:12px;padding-top:10px;border-top:1px dashed ${T.line};display:flex;justify-content:space-between;align-items:baseline">
+        <span style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1.5px">BEST EVER</span>
+        <span style="font-family:${F.mono};font-size:14px;font-weight:700;color:${T.gold};font-feature-settings:'tnum'">${stats.bestStreak}</span>
+      </div>`));
+
+    page.appendChild(row1);
+
+    // Row 2: Best / Worst
+    const best = closed.reduce((b, t) => (b === null || t.pnl > b.pnl) ? t : b, null);
+    const worst = closed.reduce((w, t) => (w === null || t.pnl < w.pnl) ? t : w, null);
+    const row2 = document.createElement('div');
+    row2.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;';
+    row2.appendChild(this.tile('Best Trade', best ? `
+      <div style="font-family:${F.mono};font-size:11px;font-weight:700;color:${T.ink};letter-spacing:1px">${best.ticker}</div>
+      <div style="font-family:${F.display};font-size:24px;color:${T.win};line-height:1.1;margin-top:2px;font-feature-settings:'tnum'">${fmtMoney(best.pnl, {sign:true})}</div>
+      <div style="font-family:${F.mono};font-size:10px;color:${T.inkMute};letter-spacing:0.5px;margin-top:4px">${fmtDate(best.date)} · ${fmtPct(best.pnlPct)}</div>
+    ` : `<div style="font-family:${F.mono};font-size:11px;color:${T.inkMute}">No closed trades yet</div>`, 'win'));
+    row2.appendChild(this.tile('Worst Trade', worst ? `
+      <div style="font-family:${F.mono};font-size:11px;font-weight:700;color:${T.ink};letter-spacing:1px">${worst.ticker}</div>
+      <div style="font-family:${F.display};font-size:24px;color:${T.loss};line-height:1.1;margin-top:2px;font-feature-settings:'tnum'">${fmtMoney(worst.pnl, {sign:true})}</div>
+      <div style="font-family:${F.mono};font-size:10px;color:${T.inkMute};letter-spacing:0.5px;margin-top:4px">${fmtDate(worst.date)} · ${fmtPct(worst.pnlPct)}</div>
+    ` : `<div style="font-family:${F.mono};font-size:11px;color:${T.inkMute}">No closed trades yet</div>`, 'loss'));
+    page.appendChild(row2);
+
+    // Most traded
+    const tickerCounts = {};
+    trades.forEach(t => { tickerCounts[t.ticker] = (tickerCounts[t.ticker] || 0) + 1; });
+    const topTickers = Object.entries(tickerCounts).sort((a,b) => b[1]-a[1]).slice(0,5);
+    if (topTickers.length > 0) {
+      const maxCount = topTickers[0][1];
+      page.appendChild(this.tile('Most Traded', topTickers.map(([ticker, count]) => `
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
+          <span style="width:42px;font-family:${F.mono};font-size:11px;font-weight:700;color:${T.ink};letter-spacing:0.5px">${ticker}</span>
+          <div style="flex:1;height:8px;background:${T.bgDeep};border-radius:1px;overflow:hidden">
+            <div style="width:${(count/maxCount)*100}%;height:100%;background:${T.primary};transition:width 0.8s"></div>
+          </div>
+          <span style="width:18px;text-align:right;font-family:${F.mono};font-size:10px;color:${T.inkMute}">${count}</span>
+        </div>`).join(''), null, 'margin-bottom:10px'));
+    }
+
+    // Emotion heatmap
+    const emotions = {};
+    closed.forEach(t => {
+      if (!t.emotion) return;
+      if (!emotions[t.emotion]) emotions[t.emotion] = { wins: 0, losses: 0 };
+      if (t.pnl > 0) emotions[t.emotion].wins++;
+      else emotions[t.emotion].losses++;
+    });
+    const emotionEntries = Object.entries(emotions).sort((a,b) => (b[1].wins+b[1].losses) - (a[1].wins+a[1].losses));
+    if (emotionEntries.length > 0) {
+      page.appendChild(this.tile('Emotion Heatmap', emotionEntries.map(([label, e]) => {
+        const total = e.wins + e.losses;
+        const winPct = total ? (e.wins / total) * 100 : 0;
+        return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <span style="width:64px;font-family:${F.mono};font-size:10px;font-weight:600;color:${T.inkSoft};letter-spacing:0.5px">${label}</span>
+          <div style="flex:1;height:14px;background:${T.bgDeep};border-radius:2px;display:flex;overflow:hidden">
+            <div style="width:${winPct}%;background:${T.win}"></div>
+            <div style="width:${100-winPct}%;background:${T.loss}"></div>
+          </div>
+          <span style="font-family:${F.mono};font-size:10px;color:${T.ink};width:36px;text-align:right">${e.wins}/${total}</span>
+        </div>`;
+      }).join(''), null, 'margin-bottom:10px'));
+    }
+
+    // Weekday P&L
+    const byDay = { Mon:0, Tue:0, Wed:0, Thu:0, Fri:0 };
+    const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    closed.forEach(t => {
+      const day = dayNames[new Date(t.date+'T00:00:00').getDay()];
+      if (byDay.hasOwnProperty(day)) byDay[day] += t.pnl;
+    });
+    const maxDayAbs = Math.max(...Object.values(byDay).map(Math.abs), 1);
+    page.appendChild(this.tile('Best Day of Week', `
+      <div style="display:flex;gap:6px;align-items:flex-end;height:80px;padding-top:10px">
+        ${Object.entries(byDay).map(([day, pnl]) => {
+          const h = Math.max(4, (Math.abs(pnl) / maxDayAbs) * 60);
+          const win = pnl >= 0;
+          return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;justify-content:flex-end;height:100%">
+            <span style="font-family:${F.mono};font-size:7px;font-weight:600;color:${win ? T.win : T.loss};white-space:nowrap">${pnl !== 0 ? (pnl > 0 ? '+' : '-') + '$' + Math.abs(Math.round(pnl)) : '—'}</span>
+            <div style="width:100%;height:${h}px;border-radius:2px;background:${win && pnl !== 0 ? T.win : !win ? T.loss : T.bgDeep}"></div>
+            <span style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1px">${day.toUpperCase()}</span>
+          </div>`;
+        }).join('')}
+      </div>`, null, 'margin-bottom:10px'));
+
+    // P&L Calendar
+    page.appendChild(this.tile('P&L Calendar', this.buildCalendar(closed), null, 'margin-bottom:10px'));
+
+    // Footer
+    const footer = document.createElement('div');
+    footer.style.cssText = `margin-top:20px;padding-top:16px;border-top:1px solid ${T.line};display:flex;justify-content:space-between;align-items:baseline;`;
+    footer.innerHTML = `
+      <span style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:2px">EDGELOG · v1.0</span>
+      <span style="font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:2px">${trades.length} TRADES</span>`;
+    page.appendChild(footer);
+    container.appendChild(page);
+  }
+
+  tile(label, content, glow, extraStyle = '') {
+    const el = document.createElement('div');
+    let shadow = 'none';
+    if (glow === 'win') shadow = `inset 0 0 0 1px ${T.win}30,0 6px 18px ${T.winGlow}`;
+    if (glow === 'loss') shadow = `inset 0 0 0 1px ${T.loss}30,0 6px 18px ${T.lossGlow}`;
+    el.style.cssText = `background:${T.surface};border-radius:12px;border:1px solid ${T.line};padding:14px;box-shadow:${shadow};${extraStyle}`;
+    el.innerHTML = `
+      <div style="font-family:${F.mono};font-size:9px;font-weight:700;color:${T.inkMute};letter-spacing:2px;text-transform:uppercase;margin-bottom:10px">${label}</div>
+      ${content}`;
+    return el;
+  }
+
+  circularGauge(value) {
+    const size = 86, stroke = 6, r = (size - stroke) / 2;
+    const c = 2 * Math.PI * r;
+    const offset = c * (1 - value / 100);
+    return `<div style="position:relative;width:${size}px;height:${size}px;flex-shrink:0">
+      <svg width="${size}" height="${size}" style="transform:rotate(-90deg)">
+        <circle cx="${size/2}" cy="${size/2}" r="${r}" stroke="${T.line}" stroke-width="${stroke}" fill="none"/>
+        <circle cx="${size/2}" cy="${size/2}" r="${r}" stroke="${T.win}" stroke-width="${stroke}" fill="none"
+          stroke-dasharray="${c}" stroke-dashoffset="${offset}" stroke-linecap="round"/>
+      </svg>
+      <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column">
+        <div style="font-family:${F.display};font-size:24px;color:${T.ink};line-height:1">${value}</div>
+        <div style="font-family:${F.mono};font-size:8px;color:${T.inkMute};letter-spacing:1.5px;margin-top:2px">PCT</div>
+      </div>
+    </div>`;
+  }
+
+  buildEquityCurve(closed) {
+    const sorted = [...closed].sort((a,b) => a.date.localeCompare(b.date));
+    let cum = 0;
+    const pts = sorted.map(t => { cum += t.pnl; return cum; });
+
+    const W = window.innerWidth - 52, H = 110;
+    const min = Math.min(0, ...pts), max = Math.max(...pts, 1);
+    const range = max - min || 1;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = W * 2; canvas.height = H * 2;
+    canvas.style.cssText = `width:${W}px;height:${H}px;display:block;margin-top:12px;margin-left:-4px;`;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(2, 2);
+
+    const coords = pts.map((v, i) => ({
+      x: 8 + (i / (pts.length - 1)) * (W - 16),
+      y: 8 + (H - 26) - ((v - min) / range) * (H - 26),
+    }));
+
+    const endColor = pts[pts.length-1] >= 0 ? T.win : T.loss;
+
+    // Gradient fill
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, endColor + '40');
+    grad.addColorStop(1, endColor + '00');
+    ctx.beginPath();
+    coords.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+    ctx.lineTo(coords[coords.length-1].x, H-18);
+    ctx.lineTo(coords[0].x, H-18);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // Line
+    ctx.beginPath();
+    coords.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+    ctx.strokeStyle = endColor;
+    ctx.lineWidth = 1.8;
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+
+    // End dot
+    const last = coords[coords.length-1];
+    ctx.beginPath();
+    ctx.arc(last.x, last.y, 3, 0, Math.PI*2);
+    ctx.fillStyle = endColor;
+    ctx.fill();
+
+    return canvas;
+  }
+
+  buildCalendar(closed) {
+    const pnlByDay = {};
+    closed.forEach(t => { pnlByDay[t.date] = (pnlByDay[t.date] || 0) + t.pnl; });
+    const maxAbs = Math.max(...Object.values(pnlByDay).map(Math.abs), 1);
+
+    const today = new Date();
+    const weeks = 10;
+    const cells = [];
+    const endDate = new Date(today);
+    endDate.setDate(today.getDate() + (6 - today.getDay()));
+    const startDate = new Date(endDate);
+    startDate.setDate(endDate.getDate() - (weeks * 7 - 1));
+
+    for (let d = 0; d < weeks * 7; d++) {
+      const date = new Date(startDate);
+      date.setDate(startDate.getDate() + d);
+      const key = date.toISOString().slice(0,10);
+      const pnl = pnlByDay[key];
+      const isFuture = date > today;
+      cells.push({ key, pnl: isFuture ? null : (pnl ?? 0), isFuture });
+    }
+
+    const cols = [];
+    for (let w = 0; w < weeks; w++) cols.push(cells.slice(w*7, w*7+7));
+
+    const hexAlpha = (hex, a) => {
+      const h = hex.replace('#','');
+      const r = parseInt(h.substring(0,2),16), g = parseInt(h.substring(2,4),16), b = parseInt(h.substring(4,6),16);
+      return `rgba(${r},${g},${b},${a.toFixed(2)})`;
+    };
+
+    const cellColor = (c) => {
+      if (c.isFuture) return 'transparent';
+      if (!c.pnl) return T.bgDeep;
+      const intensity = Math.min(1, Math.abs(c.pnl) / maxAbs);
+      return hexAlpha(c.pnl > 0 ? T.win : T.loss, 0.25 + intensity * 0.75);
+    };
+
+    return `<div style="display:flex;gap:3px">
+      ${cols.map(col => `
+        <div style="display:flex;flex-direction:column;gap:3px;flex:1">
+          ${col.map(c => `<div title="${c.key}: ${c.pnl !== null ? fmtMoney(c.pnl) : ''}" style="width:100%;aspect-ratio:1;border-radius:2px;background:${cellColor(c)};border:${c.isFuture ? 'none' : '0.5px solid ' + T.line}"></div>`).join('')}
+        </div>`).join('')}
+    </div>
+    <div style="display:flex;align-items:center;gap:6px;margin-top:12px;font-family:${F.mono};font-size:9px;color:${T.inkMute};letter-spacing:1px">
+      LOSS
+      ${[0.3, 0.6, 0.9].map(a => `<div style="width:10px;height:10px;border-radius:2px;background:${hexAlpha(T.loss, a)}"></div>`).join('')}
+      <div style="width:10px;height:10px;border-radius:2px;background:${T.bgDeep}"></div>
+      ${[0.3, 0.6, 0.9].map(a => `<div style="width:10px;height:10px;border-radius:2px;background:${hexAlpha(T.win, a)}"></div>`).join('')}
+      WIN
+    </div>`;
+  }
+
+  // ── COMPUTED STATS ───────────────────────────────────────────
+  computeStats() {
+    const trades = this.data.trades;
+    const closed = trades.filter(t => t.status === 'Closed' && t.pnl !== null);
+    const totalPnl = closed.reduce((s, t) => s + t.pnl, 0);
+    const openCount = trades.filter(t => t.status === 'Open').length;
+    const wins = closed.filter(t => t.pnl > 0);
+    const losses = closed.filter(t => t.pnl < 0);
+    const wlRatio = losses.length ? (wins.length / losses.length).toFixed(1) : wins.length > 0 ? '∞' : '—';
+    const avgR = closed.filter(t => t.r !== null).length
+      ? (closed.filter(t => t.r !== null).reduce((s, t) => s + t.r, 0) / closed.filter(t => t.r !== null).length).toFixed(2)
+      : '—';
+
+    // Streak
+    let streak = 0, bestStreak = 0, current = 0;
+    [...closed].sort((a,b) => b.date.localeCompare(a.date)).forEach(t => {
+      if (t.pnl > 0) { current++; bestStreak = Math.max(bestStreak, current); if (streak === -1) streak = current; }
+      else { if (streak === -1 || streak === current) streak = 0; current = 0; }
+    });
+    // Simpler streak calc
+    let s = 0;
+    [...closed].sort((a,b) => b.date.localeCompare(a.date)).every(t => {
+      if (t.pnl > 0) { s++; return true; }
+      return false;
+    });
+
+    return { totalPnl, openCount, streak: s, bestStreak, wlRatio, avgR };
+  }
+}
+
+// ─── BOOT ─────────────────────────────────────────────────────
+window.__edgelog = new EdgeLogApp();
+window.__edgelog.confirmTrade = window.__edgelog.confirmTrade.bind(window.__edgelog);
+window.__edgelog.discardTrade = window.__edgelog.discardTrade.bind(window.__edgelog);
+window.__edgelog.exportCSV = window.__edgelog.exportCSV.bind(window.__edgelog);
+</script>
+</body>
+</html>
